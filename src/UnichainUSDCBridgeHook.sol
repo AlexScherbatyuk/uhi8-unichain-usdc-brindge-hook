@@ -31,8 +31,8 @@ contract UnichainUSDCBridgeHook is BaseHook {
         uint256 minAmountOut; // slippage guard enforced on destination
     }
 
-    address public immutable usdc;
-    address public immutable uusdc;
+    IERC20 public immutable usdc;
+    IERC20 public immutable uusdc;
 
     uint24 public constant BASE_FEE = 1000;
 
@@ -41,6 +41,7 @@ contract UnichainUSDCBridgeHook is BaseHook {
     error InvalidDelta();
     error InsufficientRelayFee(uint256 required, uint256 provided);
     error MustUseDynamicFee();
+    error IneficientUSDCBalance();
 
     event BridgeInitiated(uint64 indexed wormholeSequence, address indexed swapper, uint256 usdcAmount, address target);
     event BeforeSwapHook();
@@ -48,10 +49,11 @@ contract UnichainUSDCBridgeHook is BaseHook {
     event ComputeSwapStep(uint256, uint256);
     event CurrencyTokens(address, address);
     event ZeroForOne(bool);
+    event DebugEvent(uint256);
 
     constructor(IPoolManager _manager, address _usdc, address _uusdc) BaseHook(_manager) {
-        usdc = _usdc;
-        uusdc = _uusdc;
+        usdc = IERC20(_usdc);
+        uusdc = IERC20(_uusdc);
     }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
@@ -87,16 +89,22 @@ contract UnichainUSDCBridgeHook is BaseHook {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         bool zeroForOne = params.zeroForOne;
+        emit ZeroForOne(zeroForOne);
+        emit DebugEvent(1);
         // Validate input is USDC, otherwise ignore and continue as normal swap
-        if (Currency.unwrap(key.currency0) != usdc && Currency.unwrap(key.currency1) != usdc) {
+        if (Currency.unwrap(key.currency0) != address(usdc) && Currency.unwrap(key.currency1) != address(usdc)) {
+            emit DebugEvent(2);
             return
                 (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG);
         }
 
         // Validate zeroForOne is correct for USDC position, otherwise ignore and continue as normal swap
+        emit DebugEvent(3);
         if (zeroForOne) {
+            emit DebugEvent(4);
             // currency0 -> currency1
-            if (Currency.unwrap(key.currency0) != usdc) {
+            if (Currency.unwrap(key.currency0) != address(usdc)) {
+                emit DebugEvent(5);
                 return (
                     this.beforeSwap.selector,
                     BeforeSwapDeltaLibrary.ZERO_DELTA,
@@ -104,8 +112,11 @@ contract UnichainUSDCBridgeHook is BaseHook {
                 );
             }
         } else {
+            emit DebugEvent(6);
             // currency1 -> currency0
-            if (Currency.unwrap(key.currency1) != usdc) {
+            if (Currency.unwrap(key.currency1) != address(usdc)) {
+                emit DebugEvent(7);
+                emit CurrencyTokens(Currency.unwrap(key.currency0), Currency.unwrap(key.currency1));
                 return (
                     this.beforeSwap.selector,
                     BeforeSwapDeltaLibrary.ZERO_DELTA,
@@ -113,10 +124,11 @@ contract UnichainUSDCBridgeHook is BaseHook {
                 );
             }
         }
+
         // Now we sure that if it is zeroForOne == true  currency0 is usdc
         // in case zeroForOne == false currency1 is usdc
         // meaning amountSpecified < 0 is always USDC
-
+        emit DebugEvent(8);
         // Verify hookData is not empty, otherwise ignore and continue as normal swap
         if (hookData.length == 0) {
             return
@@ -128,24 +140,24 @@ contract UnichainUSDCBridgeHook is BaseHook {
         // For example, if amountSpecified is negative (exact in), we can deduct fees from the swap amount.
         // If amountSpecified is positive (exact out), we need to pull additional amount from the user to cover fees.
 
-        PoolId poolId = key.toId();
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+        // PoolId poolId = key.toId();
+        // (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         int256 amountSpecified = params.amountSpecified;
 
-        (, uint256 amountIn, uint256 amountOut,) = SwapMath.computeSwapStep({
-            sqrtPriceCurrentX96: sqrtPriceX96,
-            sqrtPriceTargetX96: params.sqrtPriceLimitX96,
-            liquidity: poolManager.getLiquidity(poolId),
-            amountRemaining: amountSpecified < 0
-                ? int256(-amountSpecified)  // exact-in: positive remaining
-                : int256(amountSpecified), // exact-out: positive remaining
-            feePips: 0
-        });
+        // (, uint256 amountIn, uint256 amountOut,) = SwapMath.computeSwapStep({
+        //     sqrtPriceCurrentX96: sqrtPriceX96,
+        //     sqrtPriceTargetX96: params.sqrtPriceLimitX96,
+        //     liquidity: poolManager.getLiquidity(poolId),
+        //     amountRemaining: amountSpecified < 0
+        //         ? int256(-amountSpecified)  // exact-in: positive remaining
+        //         : int256(amountSpecified), // exact-out: positive remaining
+        //     feePips: 0
+        // });
 
-        emit ComputeSwapStep(amountIn, amountOut);
+        // emit ComputeSwapStep(amountIn, amountOut);
 
-        int128 deltaSpecified;
-        int128 deltaUnspecified;
+        // int128 deltaSpecified;
+        // int128 deltaUnspecified;
 
         PoolKey memory poolKey = key;
 
@@ -154,14 +166,16 @@ contract UnichainUSDCBridgeHook is BaseHook {
         bytes memory swapData = hookData;
 
         if (amountSpecified < 0) {
-            deltaSpecified = int128(-int256(amountSpecified)); //int128(-int256(amountSpecified));
-            deltaUnspecified = int128(int256(amountSpecified));
+            beforeSwapDelta = toBeforeSwapDelta({
+                deltaSpecified: int128(-int256(amountSpecified)), deltaUnspecified: int128(int256(amountSpecified))
+            });
         } else {
-            deltaSpecified = int128(-int256(amountSpecified)); //int128(params.amountSpecified);
-            deltaUnspecified = int128(int256(amountSpecified));
+            beforeSwapDelta = toBeforeSwapDelta({
+                deltaSpecified: int128(-int256(amountSpecified)), deltaUnspecified: int128(int256(amountSpecified))
+            });
         }
-        emit BeforeSwapDeltaDetails(deltaSpecified, deltaUnspecified);
-        beforeSwapDelta = toBeforeSwapDelta(deltaSpecified, deltaUnspecified);
+        //emit BeforeSwapDeltaDetails(deltaSpecified, deltaUnspecified);
+        //beforeSwapDelta = toBeforeSwapDelta(deltaSpecified, deltaUnspecified);
 
         address user = abi.decode(swapData, (address));
 
@@ -171,17 +185,21 @@ contract UnichainUSDCBridgeHook is BaseHook {
         //IERC20(usdc).transferFrom(user, address(this), amount);
         //IERC20(uusdc).transferFrom(user, address(this), amount);
         emit ZeroForOne(zeroForOne);
-        emit CurrencyTokens(usdc, uusdc);
+        emit CurrencyTokens(address(usdc), address(uusdc));
         emit CurrencyTokens(Currency.unwrap(poolKey.currency0), Currency.unwrap(poolKey.currency1));
         // poolManager.sync(poolKey.currency0);
         // poolManager.sync(poolKey.currency1);
 
+        // if(Currency.unwrap(key.currency0) != address(usdc)) {
+        //     zeroForOne
+        // }
         if (zeroForOne) {
-            IERC20(uusdc).transferFrom(user, address(this), amount);
+            uusdc.transferFrom(user, address(this), amount);
             poolKey.currency1.settle(poolManager, address(this), uint128(amount), false);
+            // poolManager.take(poolKey.currency1, address(this), uint128(amount));
             poolManager.take(poolKey.currency0, address(this), uint128(amount));
         } else {
-            IERC20(usdc).transferFrom(user, address(this), amount);
+            uusdc.transferFrom(user, address(this), amount);
             poolKey.currency0.settle(poolManager, address(this), uint128(amount), false);
             poolManager.take(poolKey.currency1, address(this), uint128(amount));
         }
@@ -234,6 +252,7 @@ contract UnichainUSDCBridgeHook is BaseHook {
 
         // Bridge logic goes here
         //int256 amountSpecified = params.amountSpecified;
+        //if (usdc.balanceOf(address(this)) == 0) revert IneficientUSDCBalance();
         _bridge(amount, swapData, true);
 
         // no swap fee on this one, only bridge fee

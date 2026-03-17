@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.26;
 
 import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
@@ -7,11 +7,6 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/**
- * THIS IS AN EXAMPLE CONTRACT THAT USES HARDCODED VALUES FOR CLARITY.
- * THIS IS AN EXAMPLE CONTRACT THAT USES UN-AUDITED CODE.
- * DO NOT USE THIS CODE IN PRODUCTION.
- */
 interface IStaker {
     function stake(address beneficiary, uint256 amount) external;
 
@@ -56,9 +51,9 @@ contract USDCBridgeSender is Ownable2Step {
         uint256 fees
     );
 
-    IRouterClient private immutable i_router;
-    IERC20 private immutable i_linkToken;
-    IERC20 private immutable i_usdcToken;
+    IRouterClient internal immutable i_router;
+    IERC20 internal immutable i_linkToken;
+    IERC20 internal immutable i_usdcToken;
 
     // Mapping to keep track of the receiver contract per destination chain.
     mapping(uint64 => address) public s_receivers;
@@ -70,10 +65,12 @@ contract USDCBridgeSender is Ownable2Step {
         _;
     }
 
-    /// @notice Constructor initializes the contract with the router address.
-    /// @param _router The address of the router contract.
-    /// @param _link The address of the link contract.
-    /// @param _usdcToken The address of the usdc contract.
+    /**
+     * @notice Constructor initializes the contract with the router address.
+     * @param _router The address of the router contract.
+     * @param _link The address of the link contract.
+     * @param _usdcToken The address of the usdc contract.
+     */
     constructor(address _router, address _link, address _usdcToken) Ownable(msg.sender) {
         if (_router == address(0)) revert InvalidRouter();
         if (_link == address(0)) revert InvalidLinkToken();
@@ -83,10 +80,12 @@ contract USDCBridgeSender is Ownable2Step {
         i_usdcToken = IERC20(_usdcToken);
     }
 
-    /// @dev Set the receiver contract for a given destination chain.
-    /// @notice This function can only be called by the owner.
-    /// @param _destinationChainSelector The selector of the destination chain.
-    /// @param _receiver The receiver contract on the destination chain .
+    /**
+     * @notice Set the receiver contract for a given destination chain.
+     * @dev This function can only be called by the owner.
+     * @param _destinationChainSelector The selector of the destination chain.
+     * @param _receiver The receiver contract on the destination chain.
+     */
     function setReceiverForDestinationChain(uint64 _destinationChainSelector, address _receiver)
         external
         onlyOwner
@@ -96,10 +95,12 @@ contract USDCBridgeSender is Ownable2Step {
         s_receivers[_destinationChainSelector] = _receiver;
     }
 
-    /// @dev Set the gas limit for a given destination chain.
-    /// @notice This function can only be called by the owner.
-    /// @param _destinationChainSelector The selector of the destination chain.
-    /// @param _gasLimit The gas limit on the destination chain .
+    /**
+     * @notice Set the gas limit for a given destination chain.
+     * @dev This function can only be called by the owner.
+     * @param _destinationChainSelector The selector of the destination chain.
+     * @param _gasLimit The gas limit on the destination chain.
+     */
     function setGasLimitForDestinationChain(uint64 _destinationChainSelector, uint256 _gasLimit)
         external
         onlyOwner
@@ -109,9 +110,11 @@ contract USDCBridgeSender is Ownable2Step {
         s_gasLimits[_destinationChainSelector] = _gasLimit;
     }
 
-    /// @dev Delete the receiver contract for a given destination chain.
-    /// @notice This function can only be called by the owner.
-    /// @param _destinationChainSelector The selector of the destination chain.
+    /**
+     * @notice Delete the receiver contract for a given destination chain.
+     * @dev This function can only be called by the owner.
+     * @param _destinationChainSelector The selector of the destination chain.
+     */
     function deleteReceiverForDestinationChain(uint64 _destinationChainSelector)
         external
         onlyOwner
@@ -123,19 +126,21 @@ contract USDCBridgeSender is Ownable2Step {
         delete s_receivers[_destinationChainSelector];
     }
 
-    /// @notice Sends data and transfer tokens to receiver on the destination chain.
-    /// @notice Pay for fees in LINK.
-    /// @dev Assumes your contract has sufficient LINK to pay for CCIP fees.
-    /// @param _destinationChainSelector The identifier (aka selector) for the destination blockchain.
-    /// @param _beneficiary The address of the beneficiary of the staked tokens on the destination blockchain.
-    /// @param _amount token amount.
-    /// @return messageId The ID of the CCIP message that was sent.
-    function sendMessagePayLINK(uint64 _destinationChainSelector, address _beneficiary, uint256 _amount)
-        external
-        onlyOwner
-        validateDestinationChain(_destinationChainSelector)
-        returns (bytes32 messageId)
-    {
+    /**
+     * @notice Sends data and transfer tokens to receiver on the destination chain.
+     * @notice Pay for fees in LINK.
+     * @dev Assumes your contract has sufficient LINK to pay for CCIP fees.
+     * @param _destinationChainSelector The identifier (aka selector) for the destination blockchain.
+     * @param _beneficiary The address of the beneficiary of the staked tokens on the destination blockchain.
+     * @param _amount token amount.
+     * @return messageId The ID of the CCIP message that was sent.
+     */
+    function sendMessagePayLINK(
+        uint64 _destinationChainSelector,
+        address _beneficiary,
+        uint256 _amount,
+        bytes memory _data
+    ) public onlyOwner validateDestinationChain(_destinationChainSelector) returns (bytes32 messageId) {
         address receiver = s_receivers[_destinationChainSelector];
         if (receiver == address(0)) {
             revert NoReceiverOnDestinationChain(_destinationChainSelector);
@@ -204,10 +209,11 @@ contract USDCBridgeSender is Ownable2Step {
         return messageId;
     }
 
-    /// @notice Allows the owner of the contract to withdraw all LINK tokens in the contract and transfer them to a
-    /// beneficiary.
-    /// @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
-    /// @param _beneficiary The address to which the tokens will be sent.
+    /**
+     * @notice Allows the owner of the contract to withdraw all LINK tokens in the contract and transfer them to a beneficiary.
+     * @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
+     * @param _beneficiary The address to which the tokens will be sent.
+     */
     function withdrawLinkToken(address _beneficiary) public onlyOwner {
         // Retrieve the balance of this contract
         uint256 amount = i_linkToken.balanceOf(address(this));
@@ -218,10 +224,11 @@ contract USDCBridgeSender is Ownable2Step {
         i_linkToken.safeTransfer(_beneficiary, amount);
     }
 
-    /// @notice Allows the owner of the contract to withdraw all usdc tokens in the contract and transfer them to a
-    /// beneficiary.
-    /// @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
-    /// @param _beneficiary The address to which the tokens will be sent.
+    /**
+     * @notice Allows the owner of the contract to withdraw all usdc tokens in the contract and transfer them to a beneficiary.
+     * @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
+     * @param _beneficiary The address to which the tokens will be sent.
+     */
     function withdrawUsdcToken(address _beneficiary) public onlyOwner {
         // Retrieve the balance of this contract
         uint256 amount = i_usdcToken.balanceOf(address(this));

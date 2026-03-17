@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.26;
 
 import {CCIPReceiver} from "@chainlink/contracts-ccip/contracts/applications/CCIPReceiver.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
@@ -8,12 +8,6 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
-
-/**
- * THIS IS AN EXAMPLE CONTRACT THAT USES HARDCODED VALUES FOR CLARITY.
- * THIS IS AN EXAMPLE CONTRACT THAT USES UN-AUDITED CODE.
- * DO NOT USE THIS CODE IN PRODUCTION.
- */
 
 /// @title - A simple receiver contract for receiving usdc tokens then calling a staking contract.
 contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
@@ -82,17 +76,21 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         _;
     }
 
-    /// @dev Modifier to allow only the contract itself to execute a function.
-    /// Throws an exception if called by any account other than the contract itself.
+    /**
+     * @dev Modifier to allow only the contract itself to execute a function.
+     * Throws an exception if called by any account other than the contract itself.
+     */
     modifier onlySelf() {
         if (msg.sender != address(this)) revert OnlySelf();
         _;
     }
 
-    /// @notice Constructor initializes the contract with the router address.
-    /// @param _router The address of the router contract.
-    /// @param _usdcToken The address of the usdc contract.
-    /// @param _staker The address of the staker contract.
+    /**
+     * @notice Constructor initializes the contract with the router address.
+     * @param _router The address of the router contract.
+     * @param _usdcToken The address of the usdc contract.
+     * @param _staker The address of the staker contract.
+     */
     constructor(address _router, address _usdcToken, address _staker) CCIPReceiver(_router) Ownable(msg.sender) {
         if (_usdcToken == address(0)) revert InvalidUsdcToken();
         if (_staker == address(0)) revert InvalidStaker();
@@ -101,10 +99,12 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         i_usdcToken.approve(_staker, type(uint256).max);
     }
 
-    /// @dev Set the sender contract for a given source chain.
-    /// @notice This function can only be called by the owner.
-    /// @param _sourceChainSelector The selector of the source chain.
-    /// @param _sender The sender contract on the source chain .
+    /**
+     * @notice Set the sender contract for a given source chain.
+     * @dev This function can only be called by the owner.
+     * @param _sourceChainSelector The selector of the source chain.
+     * @param _sender The sender contract on the source chain.
+     */
     function setSenderForSourceChain(uint64 _sourceChainSelector, address _sender)
         external
         onlyOwner
@@ -114,9 +114,11 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         s_senders[_sourceChainSelector] = _sender;
     }
 
-    /// @dev Delete the sender contract for a given source chain.
-    /// @notice This function can only be called by the owner.
-    /// @param _sourceChainSelector The selector of the source chain.
+    /**
+     * @notice Delete the sender contract for a given source chain.
+     * @dev This function can only be called by the owner.
+     * @param _sourceChainSelector The selector of the source chain.
+     */
     function deleteSenderForSourceChain(uint64 _sourceChainSelector)
         external
         onlyOwner
@@ -128,10 +130,12 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         delete s_senders[_sourceChainSelector];
     }
 
-    /// @notice The entrypoint for the CCIP router to call. This function should
-    /// never revert, all errors should be handled internally in this contract.
-    /// @param any2EvmMessage The message to process.
-    /// @dev Extremely important to ensure only router calls this.
+    /**
+     * @notice The entrypoint for the CCIP router to call. This function should
+     * never revert, all errors should be handled internally in this contract.
+     * @dev Extremely important to ensure only router calls this.
+     * @param any2EvmMessage The message to process.
+     */
     function ccipReceive(Client.Any2EVMMessage calldata any2EvmMessage) external override onlyRouter {
         // validate the sender contract
         if (abi.decode(any2EvmMessage.sender, (address)) != s_senders[any2EvmMessage.sourceChainSelector]) {
@@ -153,11 +157,13 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         }
     }
 
-    /// @notice Serves as the entry point for this contract to process incoming messages.
-    /// @param any2EvmMessage Received CCIP message.
-    /// @dev Transfers specified token amounts to the owner of this contract. This function
-    /// must be external because of the  try/catch for error handling.
-    /// It uses the `onlySelf`: can only be called from the contract.
+    /**
+     * @notice Serves as the entry point for this contract to process incoming messages.
+     * @dev Transfers specified token amounts to the owner of this contract. This function
+     * must be external because of the try/catch for error handling.
+     * It uses the `onlySelf`: can only be called from the contract.
+     * @param any2EvmMessage Received CCIP message.
+     */
     function processMessage(Client.Any2EVMMessage calldata any2EvmMessage) external onlySelf {
         _ccipReceive(any2EvmMessage); // process the message - may revert
     }
@@ -181,11 +187,13 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         );
     }
 
-    /// @notice Allows the owner to retry a failed message in order to unblock the associated tokens.
-    /// @param messageId The unique identifier of the failed message.
-    /// @param beneficiary The address to which the tokens will be sent.
-    /// @dev This function is only callable by the contract owner. It changes the status of the message
-    /// from 'failed' to 'resolved' to prevent reentry and multiple retries of the same message.
+    /**
+     * @notice Allows the owner to retry a failed message in order to unblock the associated tokens.
+     * @dev This function is only callable by the contract owner. It changes the status of the message
+     * from 'failed' to 'resolved' to prevent reentry and multiple retries of the same message.
+     * @param messageId The unique identifier of the failed message.
+     * @param beneficiary The address to which the tokens will be sent.
+     */
     function retryFailedMessage(bytes32 messageId, address beneficiary) external onlyOwner {
         // Check if the message has failed; if not, revert the transaction.
         if (s_failedMessages.get(messageId) != uint256(ErrorCode.FAILED)) {
@@ -206,15 +214,17 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         emit MessageRecovered(messageId);
     }
 
-    /// @notice Retrieves a paginated list of failed messages.
-    /// @dev This function returns a subset of failed messages defined by `offset` and `limit` parameters. It ensures that
-    /// the pagination parameters are within the bounds of the available data set.
-    /// @param offset The index of the first failed message to return, enabling pagination by skipping a specified number
-    /// of messages from the start of the dataset.
-    /// @param limit The maximum number of failed messages to return, restricting the size of the returned array.
-    /// @return failedMessages An array of `FailedMessage` struct, each containing a `messageId` and an `errorCode`
-    /// (RESOLVED or FAILED), representing the requested subset of failed messages. The length of the returned array is
-    /// determined by the `limit` and the total number of failed messages.
+    /**
+     * @notice Retrieves a paginated list of failed messages.
+     * @dev This function returns a subset of failed messages defined by `offset` and `limit` parameters. It ensures that
+     * the pagination parameters are within the bounds of the available data set.
+     * @param offset The index of the first failed message to return, enabling pagination by skipping a specified number
+     * of messages from the start of the dataset.
+     * @param limit The maximum number of failed messages to return, restricting the size of the returned array.
+     * @return failedMessages An array of `FailedMessage` struct, each containing a `messageId` and an `errorCode`
+     * (RESOLVED or FAILED), representing the requested subset of failed messages. The length of the returned array is
+     * determined by the `limit` and the total number of failed messages.
+     */
     function getFailedMessages(uint256 offset, uint256 limit) external view returns (FailedMessage[] memory) {
         uint256 length = s_failedMessages.length();
 

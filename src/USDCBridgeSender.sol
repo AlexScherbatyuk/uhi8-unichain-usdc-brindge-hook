@@ -224,11 +224,10 @@ contract USDCBridgeSender is Ownable2Step {
         i_linkToken.safeTransfer(_beneficiary, amount);
     }
 
-    /**
-     * @notice Allows the owner of the contract to withdraw all usdc tokens in the contract and transfer them to a beneficiary.
-     * @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
-     * @param _beneficiary The address to which the tokens will be sent.
-     */
+    /// @notice Allows the owner of the contract to withdraw all usdc tokens in the contract and transfer them to a
+    /// beneficiary.
+    /// @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
+    /// @param _beneficiary The address to which the tokens will be sent.
     function withdrawUsdcToken(address _beneficiary) public onlyOwner {
         // Retrieve the balance of this contract
         uint256 amount = i_usdcToken.balanceOf(address(this));

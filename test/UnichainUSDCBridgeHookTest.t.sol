@@ -17,10 +17,14 @@ import {SwapParams, ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {USDTMock} from "./Mock/USDTMock.sol";
 import {USDCMock} from "./Mock/USDCMock.sol";
+import {HelperConfig} from "script/HelperConfig.sol";
 
 contract UnichainUSDCBridgeHookTest is Test, Deployers {
     USDCMock USDC;
     USDTMock USDT; // our token to use in the ETH-TOKEN pool
+
+    HelperConfig helpConfig;
+    HelperConfig.NetworkConfig config;
 
     UnichainUSDCBridgeHook hook;
 
@@ -40,6 +44,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
         deployFreshManagerAndRouters();
         _router = makeAddr("router");
         _destinationChainSelector = 1;
+
+        helpConfig = new HelperConfig();
+        config = helpConfig.getConfig();
     }
 
     modifier initializeZeroOnePool() {
@@ -67,7 +74,13 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
 
         deployCodeTo(
             "UnichainUSDCBridgeHook.sol",
-            abi.encode(manager, address(USDC), address(USDT), address(_router), _destinationChainSelector),
+            abi.encode(
+                manager,
+                address(USDC),
+                address(config.linkTokens[0]),
+                address(config.ccipRouters[0]),
+                config.destinationChainSelectors[0]
+            ),
             address(flags)
         );
 

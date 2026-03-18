@@ -1,7 +1,8 @@
-// SPDX License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
 import {SwapMath} from "@uniswap/v4-core/src/libraries/SwapMath.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
 import {BaseHook} from "v4-hooks-public/src/base/BaseHook.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
@@ -32,10 +33,11 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         uint256 minAmountOut; // slippage guard enforced on destination
     }
 
-    uint64 public immutable destinationChainSelector;
+    uint64 public immutable destinationChainSelector; // Unichain destination selector
+    PoolKey public usdcLinkPoolKey; // Pool key for the USDC/LINK pool used to buy LINK for fees
 
-    uint24 public constant BASE_FEE = 1000;
-    uint24 public constant RESERVE_BPS = 6000;
+    uint24 public constant BASE_FEE = 1000; // 10%
+    uint24 public constant BRIDGE_FEE = 10; // 0.1%
 
     error NotUSDCOutput();
     error SlippageExceeded(uint256 actual, uint256 minimum);
@@ -44,13 +46,6 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     error MustUseDynamicFee();
     error InefficientUSDCBalance();
 
-    // event BridgeInitiated(uint64 indexed wormholeSequence, address indexed swapper, uint256 usdcAmount, address target);
-    // event BeforeSwapHook();
-    // event BeforeSwapDeltaDetails(int128, int128);
-    // event ComputeSwapStep(uint256, uint256);
-    // event CurrencyTokens(address, address);
-    // event ZeroForOne(bool);
-    // event DebugEvent(uint256);
     event Debug(int256);
     event SkipBridgeConditionsZeroHookData();
     event SkipBridgeConditionsNotMet();
@@ -339,12 +334,10 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         BalanceDelta returnBalanceDelta;
         uint256 amount;
         if (Currency.unwrap(key.currency0) == address(i_usdcToken)) {
-            //uint256 reserve = uint256(-int256(delta.amount0())) * RESERVE_BPS / 10000;
             amount = uint256(-int256(delta.amount0()));
             key.currency0.take(poolManager, address(this), amount, false); // hook delta = -reserve
             returnBalanceDelta = toBalanceDelta(int128(int256(amount)), 0); // hookDelta = +reserve → hook net = 0, caller pays extra
         } else {
-            //uint256 reserve = uint256(-int256(delta.amount1())) * RESERVE_BPS / 10000;
             amount = uint256(-int256(delta.amount0()));
             key.currency1.take(poolManager, address(this), amount, false); // hook delta = -reserve
             returnBalanceDelta = toBalanceDelta(0, int128(int256(amount)));
@@ -404,6 +397,45 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         // In a real implementation, you would likely want to calculate the fee based on various factors
         // such as current market conditions, the size of the swap, etc. For simplicity, we are using a fixed fee here.
         return BASE_FEE;
+    }
+
+    /**
+     * @notice Sets the PoolKey for the USDC/LINK pool used to buy LINK to pay CCIP fees.
+     * @param key The pool key of the USDC/LINK pool.
+     */
+    function setUsdcLinkPoolKey(PoolKey calldata key) external onlyOwner {
+        usdcLinkPoolKey = key;
+    }
+
+    /**
+     * @notice Swaps USDC for LINK inside the already-unlocked PoolManager.
+     * @dev Called from hook callbacks where the PoolManager lock is already held.
+     *      Settles USDC from this contract's balance and takes LINK into this contract.
+     * @param amount The exact amount of USDC to swap in.
+     */
+    function _swapUSDCToLink(uint256 amount) internal {
+        PoolKey memory key = usdcLinkPoolKey;
+
+        // Determine swap direction: currency0 < currency1 by address (Uniswap ordering)
+        bool zeroForOne = address(i_usdcToken) < address(i_linkToken);
+
+        SwapParams memory swapParams = SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: -int256(amount), // exact input
+            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+        });
+
+        BalanceDelta delta = poolManager.swap(key, swapParams, "");
+
+        if (zeroForOne) {
+            // USDC is currency0: we owe USDC (delta.amount0 < 0), receive LINK (delta.amount1 > 0)
+            key.currency0.settle(poolManager, address(this), amount, false);
+            key.currency1.take(poolManager, address(this), uint256(int256(delta.amount1())), false);
+        } else {
+            // USDC is currency1: we owe USDC (delta.amount1 < 0), receive LINK (delta.amount0 > 0)
+            key.currency1.settle(poolManager, address(this), amount, false);
+            key.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), false);
+        }
     }
 
     /**

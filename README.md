@@ -25,11 +25,20 @@
 ### Predeploid Sepolia and Unichain contracts: Sepolia (Pool, Hook), Unichain (Receiver) 
 
 
-## Required for fork integration
-### Tokens
-#### Sepolia
-#### Unichain
+## Deployed Contracts
 
-# Steps
-1. Deploy Mock USDT to Sepolia          : 0x3428Fb59Fa75E14A1ba6d33161FA69545f8B54aF
-2. Deploy Mock USDT to Unichain Sepolia : 0xCa3012Aa4b82A70b47D1359d0C14ffc9255eEB72
+### Sepolia
+
+| Contract Name | Address | Description |
+|---|---|---|
+| Mock USDT | 0x3428Fb59Fa75E14A1ba6d33161FA69545f8B54aF | Mock USDT token, examplary token1 for main hook's pool |
+| USDC/LINK Pool Hook | 0x6c5732BbBc18616d415a47C214D5ee3ed56A6000 | USDC/LINK Pool Hook is used to swap usdc to link, to pay Chainlink fee |
+| LiquidityRouter | 0x6c5732BbBc18616d415a47C214D5ee3ed56A6000 | Is used do add liqudity to project pools |
+<!--| Staker/Sender | 0x4f45c760977A2C57E135eDD71D32e45A756BDA7a | Cross-chain message sender contract |-->
+
+### Unichain Sepolia
+
+| Contract Name | Address | Description |
+|---|---|---|
+| Mock USDT | 0xCa3012Aa4b82A70b47D1359d0C14ffc9255eEB72 | Mock USDT token for testing |
+| Receiver | 0x41FD4526d333c54810078f59f3E7b7f642e7f5ba | Cross-chain receiver + stake contract |

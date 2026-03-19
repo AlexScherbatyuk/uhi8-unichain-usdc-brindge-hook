@@ -18,6 +18,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {USDCBridgeSender} from "./USDCBridgeSender.sol";
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 
 contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     using CurrencyLibrary for Currency;
@@ -39,17 +40,16 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     uint24 public constant BASE_FEE = 1000; // 10%
     uint24 public constant BRIDGE_FEE = 10; // 0.1%
 
-    error NotUSDCOutput();
-    error SlippageExceeded(uint256 actual, uint256 minimum);
-    error InvalidDelta();
-    error InsufficientRelayFee(uint256 required, uint256 provided);
-    error MustUseDynamicFee();
-    error InefficientUSDCBalance();
+    error UnichainUSDCBridgeHook_NotUSDCOutput();
+    error UnichainUSDCBridgeHook_SlippageExceeded(uint256 actual, uint256 minimum);
+    error UnichainUSDCBridgeHook_MustUseDynamicFee();
+    error UnichainUSDCBridgeHook_InefficientUSDCBalance();
 
     event Debug(int256);
     event SkipBridgeConditionsZeroHookData();
     event SkipBridgeConditionsNotMet();
     event BridgeSimulation();
+    event SwapUSDCToLink();
 
     /**
      * @notice Constructor initializes the hook with the pool manager, USDC token, LINK token, CCIP router, and destination chain.
@@ -102,7 +102,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         returns (bytes4)
     {
         // Verify the pool is initializing with dynamicFee enabled
-        if (!key.fee.isDynamicFee()) revert MustUseDynamicFee();
+        if (!key.fee.isDynamicFee()) revert UnichainUSDCBridgeHook_MustUseDynamicFee();
         return this.beforeInitialize.selector;
     }
 
@@ -221,7 +221,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         // if above logic is correct this condition never evaluates to true, so this revert is never reached.
         if (i_usdcToken.balanceOf(address(this)) == 0) {
-            revert InefficientUSDCBalance();
+            revert UnichainUSDCBridgeHook_InefficientUSDCBalance();
         }
 
         // main bridge logic
@@ -413,7 +413,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
      *      Settles USDC from this contract's balance and takes LINK into this contract.
      * @param amount The exact amount of USDC to swap in.
      */
-    function _swapUSDCToLink(uint256 amount) internal {
+    function _swapUSDCToLink(uint256 amount) internal returns (uint256) {
         PoolKey memory key = usdcLinkPoolKey;
 
         // Determine swap direction: currency0 < currency1 by address (Uniswap ordering)
@@ -424,6 +424,8 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             amountSpecified: -int256(amount), // exact input
             sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
+
+        emit SwapUSDCToLink();
 
         BalanceDelta delta = poolManager.swap(key, swapParams, "");
 
@@ -436,6 +438,8 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             key.currency1.settle(poolManager, address(this), amount, false);
             key.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), false);
         }
+
+        return i_usdcToken.balanceOf(address(this));
     }
 
     /**
@@ -445,13 +449,65 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
      * @param messageData The message data containing the target address and calldata for the destination chain.
      */
     function _bridge(uint256 amount, address sender, MessageData memory messageData) internal {
-        //uint24 hookFee = getFee();
+        uint256 linkFee = calculateBridgeFee(amount, sender, messageData);
 
-        bytes32 messageId = sendMessagePayLINK({
+        uint256 usdcFee = _swapUSDCToLink(linkFee);
+
+        uint256 protocolFee = amount * 10 / 10000; // 0.01 %
+
+        uint256 totalFee = usdcFee + protocolFee;
+
+        if (totalFee >= amount) {
+            revert UnichainUSDCBridgeHook_InefficientUSDCBalance();
+        }
+
+        uint256 finalAmount = amount - totalFee;
+
+        if (messageData.minAmountOut > 0 && messageData.minAmountOut < finalAmount) {
+            revert UnichainUSDCBridgeHook_SlippageExceeded(finalAmount, messageData.minAmountOut);
+        }
+
+        sendMessagePayLINK({
             _destinationChainSelector: destinationChainSelector, // uint64
-            _beneficiary: messageData.target, // address
+            _target: messageData.target,
+            _msgSender: sender,
             _amount: amount, // uint256
             _data: messageData.callData //bytes memory
         });
+    }
+
+    function calculateBridgeFee(uint256 amount, address msgSender, MessageData memory messageData)
+        public
+        view
+        returns (uint256 fees)
+    {
+        address receiver = s_receivers[destinationChainSelector];
+        if (receiver == address(0)) {
+            revert NoReceiverOnDestinationChain(destinationChainSelector);
+        }
+        if (amount == 0) revert AmountIsZero();
+        uint256 gasLimit = s_gasLimits[destinationChainSelector];
+        if (gasLimit == 0) {
+            revert NoGasLimitOnDestinationChain(destinationChainSelector);
+        }
+
+        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({token: address(i_usdcToken), amount: amount});
+        // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
+        Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
+            receiver: abi.encode(receiver), // ABI-encoded receiver of destination receiver contract
+            data: abi.encode(messageData.target, msgSender, messageData.callData), // Encode the function selector and
+            tokenAmounts: tokenAmounts, // The amount and type of token being transferred
+            extraArgs: Client._argsToBytes(
+                Client.GenericExtraArgsV2({
+                    gasLimit: gasLimit, // Gas limit for the callback on the destination chain
+                    allowOutOfOrderExecution: true // Allows the message to be executed out of order relative to other messages
+                })
+            ),
+            feeToken: address(i_linkToken)
+        });
+
+        fees = i_router.getFee(destinationChainSelector, evm2AnyMessage);
+        return fees;
     }
 }

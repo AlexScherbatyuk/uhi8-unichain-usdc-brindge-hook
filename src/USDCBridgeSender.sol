@@ -32,19 +32,11 @@ contract USDCBridgeSender is Ownable2Step {
     error InvalidGasLimit(); // Used if the gas limit is 0.
     error NoGasLimitOnDestinationChain(uint64 destinationChainSelector); // Used when the gas limit is 0.
 
-    // Event emitted when a message is sent to another chain.
-    // The chain selector of the destination chain.
-    // The address of the receiver contract on the destination chain.
-    // The beneficiary of the staked tokens on the destination chain.
-    // The token address that was transferred.
-    // The token amount that was transferred.
-    // the token address used to pay CCIP fees.
-    // The fees paid for sending the message.
     event MessageSent( // The unique ID of the CCIP message.
         bytes32 indexed messageId,
         uint64 indexed destinationChainSelector,
         address indexed receiver,
-        address beneficiary,
+        address target,
         address token,
         uint256 tokenAmount,
         address feeToken,
@@ -131,13 +123,13 @@ contract USDCBridgeSender is Ownable2Step {
      * @notice Pay for fees in LINK.
      * @dev Assumes your contract has sufficient LINK to pay for CCIP fees.
      * @param _destinationChainSelector The identifier (aka selector) for the destination blockchain.
-     * @param _beneficiary The address of the beneficiary of the staked tokens on the destination blockchain.
      * @param _amount token amount.
      * @return messageId The ID of the CCIP message that was sent.
      */
     function sendMessagePayLINK(
         uint64 _destinationChainSelector,
-        address _beneficiary,
+        address _target,
+        address _msgSender,
         uint256 _amount,
         bytes memory _data
     ) public onlyOwner validateDestinationChain(_destinationChainSelector) returns (bytes32 messageId) {
@@ -157,20 +149,14 @@ contract USDCBridgeSender is Ownable2Step {
         // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver address
-            data: abi.encodeWithSelector(IStaker.stake.selector, _beneficiary, _amount), // Encode the function selector and
+            // data example: abi.encodeWithSelector(IStaker.stake.selector, _beneficiary, _amount),
+            data: abi.encode(_target, _msgSender, _data), // Encode the function selector and
             // the arguments of the stake function
             tokenAmounts: tokenAmounts, // The amount and type of token being transferred
             extraArgs: Client._argsToBytes(
-                // Additional arguments, setting gas limit and allowing out-of-order execution.
-                // Best Practice: For simplicity, the values are hardcoded. It is advisable to use a more dynamic approach
-                // where you set the extra arguments off-chain. This allows adaptation depending on the lanes, messages,
-                // and ensures compatibility with future CCIP upgrades. Read more about it here:
-                // https://docs.chain.link/ccip/concepts/best-practices/evm#using-extraargs
                 Client.GenericExtraArgsV2({
                     gasLimit: gasLimit, // Gas limit for the callback on the destination chain
                     allowOutOfOrderExecution: true // Allows the message to be executed out of order relative to other messages
-                    // from
-                    // the same sender
                 })
             ),
             // Set the feeToken to a feeTokenAddress, indicating specific asset will be used for fees
@@ -198,7 +184,7 @@ contract USDCBridgeSender is Ownable2Step {
             messageId,
             _destinationChainSelector,
             receiver,
-            _beneficiary,
+            _target,
             address(i_usdcToken),
             _amount,
             address(i_linkToken),

@@ -5,14 +5,14 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {UnichainUSDCBridgeHook} from "src/UnichainUSDCBridgeHook.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {HookMiner} from "v4-periphery/src/utils/HookMiner.sol";
-import {HelperConfig} from "script/HelperConfig.sol";
+import {HelperConfig} from "script/HelperConfig.s.sol";
 
 contract DeployUnichainUSDCBridgeHook is Script {
     // https://getfoundry.sh/guides/deterministic-deployments-using-create2/#getting-started
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    // https://docs.uniswap.org/contracts/v4/deployments#base-sepolia-84532
-    address internal constant POOL_MANAGER = 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408;
+    // // https://docs.uniswap.org/contracts/v4/deployments#base-sepolia-84532
+    // address internal constant POOL_MANAGER = 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408;
 
     HelperConfig helpConfig;
     HelperConfig.NetworkConfig config;
@@ -24,7 +24,7 @@ contract DeployUnichainUSDCBridgeHook is Script {
         uint160 flags = uint160(Hooks.AFTER_SWAP_FLAG);
 
         // Mine a salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs = abi.encode(POOL_MANAGER);
+        bytes memory constructorArgs = abi.encode(config.poolManager);
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(UnichainUSDCBridgeHook).creationCode, constructorArgs);
 
@@ -32,7 +32,7 @@ contract DeployUnichainUSDCBridgeHook is Script {
 
         // Deploy the hook using CREATE2
         UnichainUSDCBridgeHook unichainUSDCBridgeHook = new UnichainUSDCBridgeHook{salt: salt}(
-            IPoolManager(POOL_MANAGER),
+            IPoolManager(config.poolManager),
             address(config.usdc),
             address(config.linkTokens[0]),
             address(config.ccipRouters[0]),

@@ -12,8 +12,9 @@ import {SwapParams, ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {USDCMock} from "./Mock/USDCMock.sol";
-import {HelperConfig} from "script/HelperConfig.sol";
-import {DeployUSDCLINKPool} from "../script/Deploy/DeployUSDCLINKPool.sol";
+import {HelperConfig} from "script/HelperConfig.s.sol";
+import {DeployUSDCLINKPool} from "script/Deploy/DeployUSDCLINKPool.s.sol";
+import {DeployUSDCLINKPoolHook} from "script/Deploy/DeployUSDCLINKPoolHook.s.sol";
 
 contract DeployUSDCLINKPoolTest is Test, Deployers {
     USDCMock usdc;
@@ -23,6 +24,7 @@ contract DeployUSDCLINKPoolTest is Test, Deployers {
     HelperConfig.NetworkConfig config;
 
     DeployUSDCLINKPool deployer;
+    IHooks hook;
 
     address _router;
     uint256 constant INITIAL_BALANCE = 1000e6; // 1000 USDC
@@ -32,6 +34,9 @@ contract DeployUSDCLINKPoolTest is Test, Deployers {
         // Deploy PoolManager and Router contracts
         deployFreshManagerAndRouters();
         _router = makeAddr("router");
+
+        DeployUSDCLINKPoolHook hookDeployer = new DeployUSDCLINKPoolHook();
+        hook = IHooks(hookDeployer.deploy(address(manager)));
 
         // Create mock tokens
         usdc = new USDCMock("USDC", "USDC", 6);
@@ -53,8 +58,10 @@ contract DeployUSDCLINKPoolTest is Test, Deployers {
      */
     function test_deployPool() public {
         // Deploy the pool using the deployer
+
         deployer = new DeployUSDCLINKPool();
-        key = deployer.deploy(address(manager));
+        key = deployer.deploy(address(manager), address(hook));
+
         console.log("Pool deployed successfully");
         console.log("Currency0:", Currency.unwrap(key.currency0));
         console.log("Currency1:", Currency.unwrap(key.currency1));
@@ -288,7 +295,7 @@ contract DeployUSDCLINKPoolTest is Test, Deployers {
      */
     function _setupPool() internal {
         deployer = new DeployUSDCLINKPool();
-        key = deployer.deploy(address(manager));
+        key = deployer.deploy(address(manager), address(hook));
 
         (Currency currency0, Currency currency1) = address(usdc) < address(link)
             ? (Currency.wrap(address(usdc)), Currency.wrap(address(link)))
@@ -297,7 +304,7 @@ contract DeployUSDCLINKPoolTest is Test, Deployers {
         (key,) = initPool({
             _currency0: currency0,
             _currency1: currency1,
-            hooks: IHooks(address(0)),
+            hooks: hook,
             fee: 3000,
             tickSpacing: 60,
             sqrtPriceX96: SQRT_PRICE_1_1

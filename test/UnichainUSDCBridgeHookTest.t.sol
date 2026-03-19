@@ -17,7 +17,7 @@ import {SwapParams, ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {USDTMock} from "./Mock/USDTMock.sol";
 import {USDCMock} from "./Mock/USDCMock.sol";
-import {HelperConfig} from "script/HelperConfig.sol";
+import {HelperConfig} from "script/HelperConfig.s.sol";
 
 contract UnichainUSDCBridgeHookTest is Test, Deployers {
     USDCMock USDC;

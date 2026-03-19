@@ -173,14 +173,18 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
             revert WrongReceivedToken(address(i_usdcToken), any2EvmMessage.destTokenAmounts[0].token);
         }
 
-        (bool success, bytes memory returnData) = i_staker.call(any2EvmMessage.data); // low level call to the staker
+        (address target, address msgSender, bytes memory callData) =
+            abi.decode(any2EvmMessage.data, (address, address, bytes));
+
+        (bool success, bytes memory returnData) = target.call(callData); // low level call to the staker
         // contract using the encoded function selector and arguments
         if (!success) revert CallToStakerFailed();
         if (returnData.length > 0) revert NoReturnDataExpected();
         emit MessageReceived(
             any2EvmMessage.messageId,
             any2EvmMessage.sourceChainSelector, // fetch the source chain identifier (aka selector)
-            abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
+            msgSender,
+            //abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
             any2EvmMessage.data, // received data
             any2EvmMessage.destTokenAmounts[0].token,
             any2EvmMessage.destTokenAmounts[0].amount

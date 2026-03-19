@@ -1,4 +1,13 @@
 include .env
 
-deployUSDTMock-unichain-sepolia:; forge script script/Deploy/DeployUSDTMock.sol --rpc-url ${UNICHAIN_SEPOLIA_RPC_URL} --broadcast --account devKey --verify --verifier blockscout --verifier-url https://unichain-sepolia.blockscout.com/api/ -vvvv
-deployUSDTMock-sepolia:; forge script script/Deploy/DeployUSDTMock.sol --rpc-url ${SEPOLIA_RPC_URL} --broadcast --account devKey --verify --etherscan-api-key ${ETHERSCAN_API_KEY} -vvvv
+#unichain sepolia
+deployUSDTMock-unichain-sepolia:; forge script script/Deploy/DeployUSDTMock.s.sol --rpc-url ${UNICHAIN_SEPOLIA_RPC_URL} --broadcast --account devKey --verify --verifier blockscout --verifier-url https://unichain-sepolia.blockscout.com/api/ -vvvv
+
+#sepolia
+deployUSDTMock-sepolia:; forge script script/Deploy/DeployUSDTMock.s.sol --rpc-url ${SEPOLIA_RPC_URL} --broadcast --account devKey --verify --etherscan-api-key ${ETHERSCAN_API_KEY} -vvvv
+
+deployDeployUSDCLINKPool-sepolia:; forge script script/Deploy/DeployUSDCLINKPool.s.sol --rpc-url ${SEPOLIA_RPC_URL} --broadcast --account devKey --verify --etherscan-api-key ${ETHERSCAN_API_KEY} --delay 10 -vvvv
+
+deployLiqudityRoute:
+#sepoli-tests
+AddLiqudityToUSDCLINKPool:; forge script script/Testnet/AddLiqudityToUSDCLINKPool.s.sol:AddLiqudityToUSDCLINKPool --rpc-url ${SEPOLIA_RPC_URL} --broadcast --account devKey --verify --etherscan-api-key ${ETHERSCAN_API_KEY} -vvvv

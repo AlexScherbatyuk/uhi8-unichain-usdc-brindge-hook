@@ -20,6 +20,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {USDCBridgeSender} from "./USDCBridgeSender.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {IStaker} from "src/interfaces/IStaker.sol";
 
 /**
  * @title UnichainUSDCBridgeHook
@@ -49,9 +50,10 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     using BalanceDeltaLibrary for BalanceDelta;
 
     struct MessageData {
-        address target; // contract to call on Unichain (e.g. vault, router)
-        bytes callData; // arbitrary calldata to forward (can be empty)
+        address beneficiary; // contract to call on Unichain (e.g. vault, router)
+        uint8 strategy; // arbitrary calldata to forward (can be empty)
         uint256 minAmountOut; // slippage guard enforced on destination
+        bytes data;
     }
 
     uint64 public immutable destinationChainSelector; // Unichain destination selector
@@ -80,8 +82,9 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         address _link,
         address _router,
         address _usdcLinkPoolHook,
-        uint64 _destinationChainSelector
-    ) BaseHook(_manager) USDCBridgeSender(_router, _link, _usdc) {
+        uint64 _destinationChainSelector,
+        address owner
+    ) BaseHook(_manager) USDCBridgeSender(_router, _link, _usdc, owner) {
         destinationChainSelector = _destinationChainSelector;
         usdcLinkPoolHook = _usdcLinkPoolHook;
     }
@@ -408,7 +411,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         internal
         returns (uint256 protocolFee)
     {
-        uint256 linkFee = _calculateBridgeFee(amount, sender, messageData);
+        uint256 linkFee = calculateBridgeFee(amount, messageData.beneficiary, messageData.strategy, messageData.data);
 
         uint256 usdcFee = _swapUSDCToLink(linkFee);
 
@@ -434,10 +437,10 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         sendMessagePayLINK({
             _destinationChainSelector: destinationChainSelector, // uint64
-            _target: messageData.target,
-            _msgSender: sender,
+            _beneficiary: messageData.beneficiary,
             _amount: finalAmount, // uint256
-            _data: messageData.callData //bytes memory
+            _strategy: messageData.strategy, //bytes memory
+            _data: messageData.data
         });
 
         return protocolFee;
@@ -446,13 +449,13 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     /**
      * @notice Calculates the CCIP bridge fee required to send USDC to the destination chain.
      * @dev Queries the CCIP router for the fee based on the message parameters and destination chain.
-     * @param amount The amount of USDC to bridge.
-     * @param msgSender The address initiating the bridge transaction (included in encoded message data).
-     * @param messageData The message data containing the target address and calldata for the destination chain.
+     * @param _amount The amount of USDC to bridge.
+     * @param _beneficiary The beneficiary address for the stake/transfer on the destination chain.
+     * @param _strategy The strategy for handling the transfer (EOA, STAKER, or AAVE).
      * @return fees The calculated fee in LINK tokens required for this bridge transaction.
      */
-    function _calculateBridgeFee(uint256 amount, address msgSender, MessageData memory messageData)
-        internal
+    function calculateBridgeFee(uint256 _amount, address _beneficiary, uint256 _strategy, bytes memory _data)
+        public
         view
         returns (uint256 fees)
     {
@@ -460,18 +463,23 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         if (receiver == address(0)) {
             revert NoReceiverOnDestinationChain(destinationChainSelector);
         }
-        if (amount == 0) revert AmountIsZero();
+        if (_amount == 0) revert AmountIsZero();
         uint256 gasLimit = s_gasLimits[destinationChainSelector];
         if (gasLimit == 0) {
             revert NoGasLimitOnDestinationChain(destinationChainSelector);
         }
 
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: address(i_usdcToken), amount: amount});
+        tokenAmounts[0] = Client.EVMTokenAmount({token: address(i_usdcToken), amount: _amount});
         // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver of destination receiver contract
-            data: abi.encode(messageData.target, msgSender, messageData.callData), // Encoded message data for destination execution
+            //data: abi.encode(_beneficiary, _strategy, amount), // Packed encoding to reduce data size for CCIP limits
+            // data: _strategy == 0
+            //     ? abi.encodeWithSelector(IERC20.transfer.selector, _beneficiary, amount)
+            //     : abi.encodeWithSelector(IStaker.stake.selector, _beneficiary, amount),
+            data: abi.encode(_beneficiary, _strategy, _amount, _data),
+            //data: bytes(""),
             tokenAmounts: tokenAmounts, // The amount and type of token being transferred
             extraArgs: Client._argsToBytes(
                 Client.GenericExtraArgsV2({

@@ -20,6 +20,10 @@ contract DeployUnichainUSDCBridgeHook is Script {
     function run() external {
         helpConfig = new HelperConfig();
         config = helpConfig.getConfig();
+        deploy();
+    }
+
+    function deploy() public returns (address) {
         // Hook contracts must have specific flags encoded in the address
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
@@ -34,7 +38,8 @@ contract DeployUnichainUSDCBridgeHook is Script {
             address(config.linkTokens[0]),
             address(config.ccipRouters[0]),
             address(config.usdcLinkPoolHook),
-            config.destinationChainSelectors[0]
+            config.destinationChainSelectors[0],
+            msg.sender
         );
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(UnichainUSDCBridgeHook).creationCode, constructorArgs);
@@ -48,10 +53,12 @@ contract DeployUnichainUSDCBridgeHook is Script {
             address(config.linkTokens[0]),
             address(config.ccipRouters[0]),
             address(config.usdcLinkPoolHook),
-            config.destinationChainSelectors[0]
+            config.destinationChainSelectors[0],
+            msg.sender
         );
         require(address(unichainUSDCBridgeHook) == hookAddress, "PointsHookScript: hook address mismatch");
 
         vm.stopBroadcast();
+        return hookAddress;
     }
 }

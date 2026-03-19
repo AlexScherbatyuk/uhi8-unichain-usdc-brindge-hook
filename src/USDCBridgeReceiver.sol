@@ -8,33 +8,61 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
+import {IStaker} from "src/interfaces/IStaker.sol";
 
-/// @title - A simple receiver contract for receiving usdc tokens then calling a staking contract.
+/**
+ * @title USDCBridgeReceiver
+ * @author Alexander Scherbatyuk (http://x.com/AlexScherbatyuk)
+ * @notice Receiver endpoint for the Unichain USDC Bridge that receives cross-chain USDC tokens via Chainlink CCIP and delegates stake calls.
+ * @dev Processes cross-chain messages, manages failed message recovery, and handles token transfers to staking contracts.
+ */
 contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
     using SafeERC20 for IERC20;
     using EnumerableMap for EnumerableMap.Bytes32ToUintMap;
 
-    error InvalidUsdcToken(); // Used when the usdc token address is 0
-    error InvalidStaker(); // Used when the staker address is 0
-    error InvalidSourceChain(); // Used when the source chain is 0
-    error InvalidSenderAddress(); // Used when the sender address is 0
-    error NoSenderOnSourceChain(uint64 sourceChainSelector); // Used when there is no sender for a given source chain
-    error WrongSenderForSourceChain(uint64 sourceChainSelector); // Used when the sender contract is not the correct one
-    error OnlySelf(); // Used when a function is called outside of the contract itself
-    error WrongReceivedToken(address usdcToken, address receivedToken); // Used if the received token is different than
-    // usdc token
-    error CallToStakerFailed(); // Used when the call to the stake function of the staker contract is not successful
-    error NoReturnDataExpected(); // Used if the call to the stake function of the staker contract returns data. This is
-    // not expected
-    error MessageNotFailed(bytes32 messageId); // Used if you try to retry a message that has no failed
+    /// @notice Thrown when the USDC token address is zero.
+    error InvalidUsdcToken();
 
-    // Event emitted when a message is received from another chain.
-    // The chain selector of the source chain.
-    // The address of the sender from the source chain.
-    // The data that was received.
-    // The token address that was transferred.
-    // The token amount that was transferred.
-    event MessageReceived( // The unique ID of the CCIP message.
+    /// @notice Thrown when the staker contract address is zero.
+    error InvalidStaker();
+
+    /// @notice Thrown when the source chain selector is zero.
+    error InvalidSourceChain();
+
+    /// @notice Thrown when a sender address is zero.
+    error InvalidSenderAddress();
+
+    /// @notice Thrown when no sender is configured for the given source chain.
+    error NoSenderOnSourceChain(uint64 sourceChainSelector);
+
+    /// @notice Thrown when the message sender is not the configured sender for the source chain.
+    error WrongSenderForSourceChain(uint64 sourceChainSelector);
+
+    /// @notice Thrown when a function is called from outside the contract itself.
+    error OnlySelf();
+
+    /// @notice Thrown when the received token differs from the expected USDC token.
+    error WrongReceivedToken(address usdcToken, address receivedToken);
+
+    /// @notice Thrown when the call to the staker contract fails.
+    error CallToStakerFailed();
+
+    /// @notice Thrown when the staker contract call returns data (none is expected).
+    error NoReturnDataExpected();
+
+    /// @notice Thrown when attempting to retry a message that has not failed.
+    error MessageNotFailed(bytes32 messageId);
+
+    /**
+     * @notice Emitted when a message is successfully received and processed from another chain.
+     * @param messageId The unique ID of the CCIP message.
+     * @param sourceChainSelector The chain selector of the source chain.
+     * @param sender The address of the sender from the source chain.
+     * @param data The call data that was received.
+     * @param token The token address that was transferred.
+     * @param tokenAmount The token amount that was transferred.
+     */
+    event MessageReceived(
         bytes32 indexed messageId,
         uint64 indexed sourceChainSelector,
         address indexed sender,
@@ -43,32 +71,51 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
         uint256 tokenAmount
     );
 
+    /**
+     * @notice Emitted when a message fails to process.
+     * @param messageId The unique ID of the CCIP message that failed.
+     * @param reason The reason for the failure.
+     */
     event MessageFailed(bytes32 indexed messageId, bytes reason);
+
+    /**
+     * @notice Emitted when a failed message is recovered by transferring tokens to a beneficiary.
+     * @param messageId The unique ID of the recovered CCIP message.
+     */
     event MessageRecovered(bytes32 indexed messageId);
 
-    // Example error code, could have many different error codes.
+    /**
+     * @notice Error codes for tracking the status of messages.
+     * @dev RESOLVED is first to ensure the default value (0) represents a resolved state.
+     */
     enum ErrorCode {
-        // RESOLVED is first so that the default value is resolved.
         RESOLVED,
-        // Could have any number of error codes here.
         FAILED
     }
 
+    /**
+     * @notice Struct to store information about a failed message.
+     * @param messageId The unique ID of the failed CCIP message.
+     * @param errorCode The error code indicating the message status (RESOLVED or FAILED).
+     */
     struct FailedMessage {
         bytes32 messageId;
         ErrorCode errorCode;
     }
 
+    /// @notice The USDC token contract.
     IERC20 private immutable i_usdcToken;
+
+    /// @notice The staker contract address where tokens are delegated.
     address private immutable i_staker;
 
-    // Mapping to keep track of the sender contract per source chain.
+    /// @notice Mapping of source chain selectors to authorized sender addresses on those chains.
     mapping(uint64 => address) public s_senders;
 
-    // The message contents of failed messages are stored here.
+    /// @notice Stores the message contents of failed CCIP messages for recovery purposes.
     mapping(bytes32 => Client.Any2EVMMessage) public s_messageContents;
 
-    // Contains failed messages and their state.
+    /// @notice EnumerableMap tracking failed messages and their status (FAILED or RESOLVED).
     EnumerableMap.Bytes32ToUintMap internal s_failedMessages;
 
     modifier validateSourceChain(uint64 _sourceChainSelector) {
@@ -137,21 +184,23 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
      * @param any2EvmMessage The message to process.
      */
     function ccipReceive(Client.Any2EVMMessage calldata any2EvmMessage) external override onlyRouter {
-        // validate the sender contract
+        // Validate that the message sender matches the configured sender for this source chain
         if (abi.decode(any2EvmMessage.sender, (address)) != s_senders[any2EvmMessage.sourceChainSelector]) {
             revert WrongSenderForSourceChain(any2EvmMessage.sourceChainSelector);
         }
+
+        // Process the message with error handling to prevent CCIP from reverting
         /* solhint-disable no-empty-blocks */
         try this.processMessage(any2EvmMessage) {
-        // Intentionally empty in this example; no action needed if processMessage succeeds
+        // Message processed successfully; no further action needed
         }
-        catch (bytes memory err) {
-            // Could set different error codes based on the caught error. Each could be
-            // handled differently.
+
+            /* solhint-enable no-empty-blocks */
+            catch (bytes memory err) {
+            // Store the failed message for later recovery
             s_failedMessages.set(any2EvmMessage.messageId, uint256(ErrorCode.FAILED));
             s_messageContents[any2EvmMessage.messageId] = any2EvmMessage;
-            // Don't revert so CCIP doesn't revert. Emit event instead.
-            // The message can be retried later without having to do manual execution of CCIP.
+            // Emit event instead of reverting to allow manual recovery via retryFailedMessage
             emit MessageFailed(any2EvmMessage.messageId, err);
             return;
         }
@@ -169,23 +218,45 @@ contract USDCBridgeReceiver is CCIPReceiver, Ownable2Step {
     }
 
     function _ccipReceive(Client.Any2EVMMessage memory any2EvmMessage) internal override {
+        // Verify the received token is the expected USDC token
         if (any2EvmMessage.destTokenAmounts[0].token != address(i_usdcToken)) {
             revert WrongReceivedToken(address(i_usdcToken), any2EvmMessage.destTokenAmounts[0].token);
         }
 
-        (address target, address msgSender, bytes memory callData) =
-            abi.decode(any2EvmMessage.data, (address, address, bytes));
+        // Decode the call data: target address, original message sender, and function call data
+        // (address _beneficiary, uint256 _strategy, uint256 _amount) =
+        //     abi.decode(any2EvmMessage.data, (address, uint256, uint256));
 
-        (bool success, bytes memory returnData) = target.call(callData); // low level call to the staker
-        // contract using the encoded function selector and arguments
+        // Execute the low-level call to the staker contract with the encoded function selector and arguments
+        bool success;
+        bytes memory returnData;
+
+        (address _beneficiary, uint256 _strategy, uint256 _amount, bytes memory _data) =
+            abi.decode(any2EvmMessage.data, (address, uint256, uint256, bytes));
+
+        if (_strategy == 0) {
+            IERC20(i_usdcToken).safeTransfer(_beneficiary, _amount);
+        }
+        if (_strategy == 1) {
+            IStaker(i_staker).stake(_beneficiary, _amount);
+        }
+
+        if (_strategy >= 2) {
+            if (any2EvmMessage.data.length > 0) {
+                (success, returnData) = _beneficiary.call(_data);
+            } else {
+                revert CallToStakerFailed();
+            }
+        }
         if (!success) revert CallToStakerFailed();
         if (returnData.length > 0) revert NoReturnDataExpected();
+
+        // Emit success event with message details
         emit MessageReceived(
             any2EvmMessage.messageId,
-            any2EvmMessage.sourceChainSelector, // fetch the source chain identifier (aka selector)
-            msgSender,
-            //abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
-            any2EvmMessage.data, // received data
+            any2EvmMessage.sourceChainSelector,
+            abi.decode(any2EvmMessage.sender, (address)),
+            any2EvmMessage.data,
             any2EvmMessage.destTokenAmounts[0].token,
             any2EvmMessage.destTokenAmounts[0].amount
         );

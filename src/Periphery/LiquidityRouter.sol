@@ -45,28 +45,29 @@ contract LiquidityRouter is IUnlockCallback {
         IERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), amount0);
         IERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), amount1);
 
-        poolManager.unlock(abi.encode(key));
+        poolManager.unlock(abi.encode(key, msg.sender, 0, 0, ""));
     }
 
     /// @notice Uniswap V4 unlock callback - performs liquidity operations
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {
-        PoolKey memory key = abi.decode(data, (PoolKey));
-
+        (PoolKey memory key, address beneficiary, uint256 strategy, uint256 minAmountOut, bytes memory _data) =
+            abi.decode(data, (PoolKey, address, uint256, uint256, bytes));
+        PoolKey memory poolKey = key;
         // Get current pool state
-        PoolId poolId = PoolIdLibrary.toId(key);
-        (uint160 sqrtPriceX96, int24 currentTick,,) = poolManager.getSlot0(poolId);
+        PoolId poolId = PoolIdLibrary.toId(poolKey);
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
 
         // Calculate tick range (±600 ticks)
         uint160 sqrtPriceAtTickLower = TickMath.getSqrtPriceAtTick(-600);
         uint160 sqrtPriceAtTickUpper = TickMath.getSqrtPriceAtTick(600);
 
         // Sync currencies to checkpoint balances
-        poolManager.sync(key.currency0);
-        poolManager.sync(key.currency1);
+        poolManager.sync(poolKey.currency0);
+        poolManager.sync(poolKey.currency1);
 
         // Approve tokens to PoolManager
-        IERC20(Currency.unwrap(key.currency0)).approve(address(poolManager), type(uint256).max);
-        IERC20(Currency.unwrap(key.currency1)).approve(address(poolManager), type(uint256).max);
+        IERC20(Currency.unwrap(poolKey.currency0)).approve(address(poolManager), type(uint256).max);
+        IERC20(Currency.unwrap(poolKey.currency1)).approve(address(poolManager), type(uint256).max);
 
         // Calculate required liquidity
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -79,7 +80,7 @@ contract LiquidityRouter is IUnlockCallback {
             ModifyLiquidityParams({
                 tickLower: -600, tickUpper: 600, liquidityDelta: int256(uint256(liquidity)), salt: bytes32(0)
             }),
-            bytes("")
+            abi.encode(beneficiary, strategy, minAmountOut, _data)
         );
 
         // Settle token deltas
@@ -87,13 +88,13 @@ contract LiquidityRouter is IUnlockCallback {
         int128 delta1 = delta.amount1();
 
         if (delta0 < 0) {
-            key.currency0.settle(poolManager, address(this), uint128(-delta0), false);
+            poolKey.currency0.settle(poolManager, address(this), uint128(-delta0), false);
         } else if (delta0 > 0) {
             poolManager.take(key.currency0, address(this), uint128(delta0));
         }
 
         if (delta1 < 0) {
-            key.currency1.settle(poolManager, address(this), uint128(-delta1), false);
+            poolKey.currency1.settle(poolManager, address(this), uint128(-delta1), false);
         } else if (delta1 > 0) {
             poolManager.take(key.currency1, address(this), uint128(delta1));
         }

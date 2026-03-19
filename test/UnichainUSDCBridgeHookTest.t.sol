@@ -80,7 +80,8 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
                 address(config.linkTokens[0]),
                 address(config.ccipRouters[0]),
                 config.usdcLinkPoolHook,
-                config.destinationChainSelectors[0]
+                config.destinationChainSelectors[0],
+                msg.sender
             ),
             address(flags)
         );
@@ -129,7 +130,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
 
         // Set user address in hook data
         bytes memory hookData = abi.encode(
-            address(this), UnichainUSDCBridgeHook.MessageData({target: address(0), callData: "", minAmountOut: 0}), true
+            address(this),
+            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
+            true
         );
         //int128 swapAmount = exactInput ? -int128(1e6) : int128(1e6);
         int128 swapAmount = -int128(1e6);
@@ -166,7 +169,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
 
         // Set user address in hook data
         bytes memory hookData = abi.encode(
-            address(this), UnichainUSDCBridgeHook.MessageData({target: address(0), callData: "", minAmountOut: 0}), true
+            address(this),
+            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
+            true
         );
         int128 swapAmount = -int128(1e6);
         bool zeroForOne = false;
@@ -206,7 +211,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
         // Set user address in hook data
 
         bytes memory hookData = abi.encode(
-            address(this), UnichainUSDCBridgeHook.MessageData({target: address(0), callData: "", minAmountOut: 0}), true
+            address(this),
+            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
+            true
         );
         int128 swapAmount = -int128(1e6);
         bool zeroForOne = false;
@@ -243,7 +250,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
 
         // Set user address in hook data
         bytes memory hookData = abi.encode(
-            address(this), UnichainUSDCBridgeHook.MessageData({target: address(0), callData: "", minAmountOut: 0}), true
+            address(this),
+            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
+            true
         );
         int128 swapAmount = -int128(1e6);
         bool zeroForOne = true;
@@ -295,7 +304,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
 
     function test_afterAddLiquidityBridge() public initializeZeroOnePool {
         bytes memory hookData = abi.encode(
-            address(this), UnichainUSDCBridgeHook.MessageData({target: address(0), callData: "", minAmountOut: 0}), true
+            address(this),
+            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
+            true
         );
         uint256 liqudityAmountToAdd = 10e6;
         // uint160 sqrtPriceAtTickLower = TickMath.getSqrtPriceAtTick(-60);
@@ -322,7 +333,9 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
 
     function test_afterAddLiquidityBridgeReversToken() public initializeOneZeroPool {
         bytes memory hookData = abi.encode(
-            address(this), UnichainUSDCBridgeHook.MessageData({target: address(0), callData: "", minAmountOut: 0}), true
+            address(this),
+            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
+            true
         );
         uint256 liqudityAmountToAdd = 10e6;
         // uint160 sqrtPriceAtTickLower = TickMath.getSqrtPriceAtTick(-60);

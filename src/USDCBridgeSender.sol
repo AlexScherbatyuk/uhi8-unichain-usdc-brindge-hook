@@ -6,12 +6,7 @@ import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-interface IStaker {
-    function stake(address beneficiary, uint256 amount) external;
-
-    function redeem() external;
-}
+import {IStaker} from "src/interfaces/IStaker.sol";
 
 /**
  * @title USDCBridgeSender
@@ -19,6 +14,12 @@ interface IStaker {
  */
 contract USDCBridgeSender is Ownable2Step {
     using SafeERC20 for IERC20;
+
+    enum Strategy {
+        EOA,
+        STAKER,
+        CUSTOM
+    }
 
     // Custom errors to provide more descriptive revert messages.
     error InvalidRouter(); // Used when the router address is 0
@@ -64,7 +65,7 @@ contract USDCBridgeSender is Ownable2Step {
      * @param _link The address of the link contract.
      * @param _usdcToken The address of the usdc contract.
      */
-    constructor(address _router, address _link, address _usdcToken) Ownable(msg.sender) {
+    constructor(address _router, address _link, address _usdcToken, address _owner) Ownable(_owner) {
         if (_router == address(0)) revert InvalidRouter();
         if (_link == address(0)) revert InvalidLinkToken();
         if (_usdcToken == address(0)) revert InvalidUsdcToken();
@@ -123,17 +124,16 @@ contract USDCBridgeSender is Ownable2Step {
      * @notice Sends USDC tokens and message data to the receiver on the destination chain, paying fees in LINK.
      * @dev Assumes contract has sufficient LINK to pay for CCIP fees. Only callable by owner.
      * @param _destinationChainSelector The identifier (aka selector) for the destination blockchain.
-     * @param _target The target contract address on the destination chain to be called.
-     * @param _msgSender The address of the message sender (included in encoded message data).
+     * @param _beneficiary The beneficiary address for the stake/transfer on the destination chain.
      * @param _amount The amount of USDC tokens to transfer.
-     * @param _data The calldata to forward to the target contract on the destination chain.
+     * @param _strategy The strategy for handling the transfer (EOA, STAKER, or AAVE).
      * @return messageId The ID of the CCIP message that was sent.
      */
     function sendMessagePayLINK(
         uint64 _destinationChainSelector,
-        address _target,
-        address _msgSender,
+        address _beneficiary,
         uint256 _amount,
+        uint256 _strategy,
         bytes memory _data
     ) public onlyOwner validateDestinationChain(_destinationChainSelector) returns (bytes32 messageId) {
         address receiver = s_receivers[_destinationChainSelector];
@@ -152,7 +152,10 @@ contract USDCBridgeSender is Ownable2Step {
         // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver address
-            data: abi.encode(_target, _msgSender, _data), // Encoded message data for destination execution
+            data: abi.encode(_beneficiary, _strategy, _amount, _data), // Packed encoding to reduce data size for CCIP limits
+            // data: _strategy == 0
+            //     ? abi.encodeWithSelector(IERC20.transfer.selector, _beneficiary, _amount)
+            //     : abi.encodeWithSelector(IStaker.stake.selector, _beneficiary, _amount),
             tokenAmounts: tokenAmounts, // The amount and type of token being transferred
             extraArgs: Client._argsToBytes(
                 Client.GenericExtraArgsV2({
@@ -185,7 +188,7 @@ contract USDCBridgeSender is Ownable2Step {
             messageId,
             _destinationChainSelector,
             receiver,
-            _target,
+            _beneficiary,
             address(i_usdcToken),
             _amount,
             address(i_linkToken),
@@ -195,5 +198,4 @@ contract USDCBridgeSender is Ownable2Step {
         // Return the message ID
         return messageId;
     }
-
 }

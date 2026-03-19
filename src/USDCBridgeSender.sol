@@ -13,7 +13,10 @@ interface IStaker {
     function redeem() external;
 }
 
-/// @title - A simple messenger contract for transferring tokens to a receiver  that calls a staker contract.
+/**
+ * @title USDCBridgeSender
+ * @notice A contract for sending USDC tokens and arbitrary messages to receiver contracts on destination chains via Chainlink CCIP.
+ */
 contract USDCBridgeSender is Ownable2Step {
     using SafeERC20 for IERC20;
 
@@ -21,9 +24,7 @@ contract USDCBridgeSender is Ownable2Step {
     error InvalidRouter(); // Used when the router address is 0
     error InvalidLinkToken(); // Used when the link token address is 0
     error InvalidUsdcToken(); // Used when the usdc token address is 0
-    error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees); // Used to make sure contract has enough
-    // balance to cover the fees.
-    //error NothingToWithdraw(); // Used when trying to withdraw Ether but there's nothing to withdraw.
+    error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees); // Used to make sure contract has enough balance to cover the fees.
     error InvalidDestinationChain(); // Used when the destination chain selector is 0.
     error InvalidReceiverAddress(); // Used when the receiver address is 0.
     error NoReceiverOnDestinationChain(uint64 destinationChainSelector); // Used when the receiver address is 0 for a
@@ -119,11 +120,13 @@ contract USDCBridgeSender is Ownable2Step {
     }
 
     /**
-     * @notice Sends data and transfer tokens to receiver on the destination chain.
-     * @notice Pay for fees in LINK.
-     * @dev Assumes your contract has sufficient LINK to pay for CCIP fees.
+     * @notice Sends USDC tokens and message data to the receiver on the destination chain, paying fees in LINK.
+     * @dev Assumes contract has sufficient LINK to pay for CCIP fees. Only callable by owner.
      * @param _destinationChainSelector The identifier (aka selector) for the destination blockchain.
-     * @param _amount token amount.
+     * @param _target The target contract address on the destination chain to be called.
+     * @param _msgSender The address of the message sender (included in encoded message data).
+     * @param _amount The amount of USDC tokens to transfer.
+     * @param _data The calldata to forward to the target contract on the destination chain.
      * @return messageId The ID of the CCIP message that was sent.
      */
     function sendMessagePayLINK(
@@ -149,9 +152,7 @@ contract USDCBridgeSender is Ownable2Step {
         // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver address
-            // data example: abi.encodeWithSelector(IStaker.stake.selector, _beneficiary, _amount),
-            data: abi.encode(_target, _msgSender, _data), // Encode the function selector and
-            // the arguments of the stake function
+            data: abi.encode(_target, _msgSender, _data), // Encoded message data for destination execution
             tokenAmounts: tokenAmounts, // The amount and type of token being transferred
             extraArgs: Client._argsToBytes(
                 Client.GenericExtraArgsV2({
@@ -195,32 +196,4 @@ contract USDCBridgeSender is Ownable2Step {
         return messageId;
     }
 
-    /**
-     * @notice Allows the owner of the contract to withdraw all LINK tokens in the contract and transfer them to a beneficiary.
-     * @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
-     * @param _beneficiary The address to which the tokens will be sent.
-     */
-    // function withdrawLinkToken(address _beneficiary) public onlyOwner {
-    //     // Retrieve the balance of this contract
-    //     uint256 amount = i_linkToken.balanceOf(address(this));
-
-    //     // Revert if there is nothing to withdraw
-    //     if (amount == 0) revert NothingToWithdraw();
-
-    //     i_linkToken.safeTransfer(_beneficiary, amount);
-    // }
-
-    /// @notice Allows the owner of the contract to withdraw all usdc tokens in the contract and transfer them to a
-    /// beneficiary.
-    /// @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
-    /// @param _beneficiary The address to which the tokens will be sent.
-    // function withdrawUsdcToken(address _beneficiary) public onlyOwner {
-    //     // Retrieve the balance of this contract
-    //     uint256 amount = i_usdcToken.balanceOf(address(this));
-
-    //     // Revert if there is nothing to withdraw
-    //     if (amount == 0) revert NothingToWithdraw();
-
-    //     i_usdcToken.safeTransfer(_beneficiary, amount);
-    // }
 }

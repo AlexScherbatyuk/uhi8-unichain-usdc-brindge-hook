@@ -21,6 +21,25 @@ import {USDCBridgeSender} from "./USDCBridgeSender.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
+/**
+ * @title UnichainUSDCBridgeHook
+ * @author Alexander Scherbatyuk (http://x.com/AlexScherbatyuk)
+ * @notice A Uniswap v4 hook that bridges USDC to the Unichain network via Chainlink CCIP.
+ * @dev This hook intercepts swaps and liquidity operations involving USDC, automatically bridging
+ * the USDC portion to the destination chain via CCIP. It supports bridging on input (beforeSwap),
+ * output (afterSwap), and liquidity addition (afterAddLiquidity) operations. The hook enforces
+ * dynamic fee mode and deducts bridge fees (LINK for CCIP + protocol fee) before sending USDC
+ * to the destination chain. Swaps USDC for LINK within an unlocked PoolManager context to pay
+ * for CCIP bridge fees.
+ *
+ * @dev Key features:
+ * - Intercepts USDC swaps and bridging via hookData encoding
+ * - Calculates and deducts CCIP bridge fees in LINK tokens
+ * - Collects protocol fees (0.1%) donated back to the pool
+ * - Supports simulation mode for testing without actual bridging
+ * - Enforces minimum output amounts (slippage protection) on destination chain
+ * - Requires pools to use dynamic fee mode for initialization
+ */
 contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     using CurrencyLibrary for Currency;
     using LPFeeLibrary for uint24;
@@ -179,7 +198,6 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         BeforeSwapDelta beforeSwapDelta;
         uint256 amountIn;
-        //uint256 amountOut;
 
         if (params.amountSpecified < 0) {
             beforeSwapDelta = toBeforeSwapDelta({
@@ -187,16 +205,6 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
                 deltaUnspecified: 0 // tokens to return
             });
         }
-        // } else {
-        //     (amountIn, amountOut) = _calculateUnspecified(poolKey, params);
-        //     beforeSwapDelta = toBeforeSwapDelta({
-        //         deltaSpecified: -int128(int256(params.amountSpecified)),
-        //         deltaUnspecified: -int128(int256(amountIn)) // tokens to return
-        //     });
-        // }
-        // // return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG);
-
-        // // decode hookData
         (address msgSender, MessageData memory messageData, bool simulation) =
             abi.decode(hookData, (address, MessageData, bool));
 
@@ -249,7 +257,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         BalanceDelta delta,
         bytes calldata hookData
     ) internal override onlyPoolManager returns (bytes4, int128) {
-        // Validate it is regular swap (menaing before swap internal logick was skipped)
+        // Validate it is regular swap (meaning before swap internal logic was skipped)
 
         // AfterSwap scenarios that can trigger bridge if hookdata is provided:
         // USDT/USDC as (currency0/currency1)
@@ -348,58 +356,11 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * @notice Calculates the input and output amounts for an exact-output swap using the current pool price.
-     * @param key The pool key identifying the pool.
-     * @param params The swap parameters.
-     * @return amountIn The required input amount.
-     * @return amountOut The expected output amount.
-     */
-    // function _calculateUnspecified(PoolKey memory key, SwapParams calldata params)
-    //     internal
-    //     view
-    //     returns (uint256 amountIn, uint256 amountOut)
-    // {
-    //     PoolId poolId = key.toId();
-
-    //     (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-    //     int256 amountSpecified = params.amountSpecified;
-
-    //     (, amountIn, amountOut,) = SwapMath.computeSwapStep({
-    //         sqrtPriceCurrentX96: sqrtPriceX96,
-    //         sqrtPriceTargetX96: params.sqrtPriceLimitX96,
-    //         liquidity: poolManager.getLiquidity(poolId),
-    //         amountRemaining: amountSpecified < 0
-    //             ? int256(-amountSpecified)  // exact-in: positive remaining
-    //             : int256(amountSpecified), // exact-out: positive remaining
-    //         feePips: 0
-    //     });
-
-    //     return (amountIn, amountOut);
-    // }
-
-    // /**
-    //  * @notice Returns the base swap fee applied to non-bridge swaps.
-    //  * @return The fee in pips (BASE_FEE).
-    //  */
-    // function getFee() internal pure returns (uint24) {
-    //     // In a real implementation, you would likely want to calculate the fee based on various factors
-    //     // such as current market conditions, the size of the swap, etc. For simplicity, we are using a fixed fee here.
-    //     return BASE_FEE;
-    // }
-
-    // /**
-    //  * @notice Sets the PoolKey for the USDC/LINK pool used to buy LINK to pay CCIP fees.
-    //  * @param key The pool key of the USDC/LINK pool.
-    //  */
-    // function setUsdcLinkPoolKey(PoolKey calldata key) external onlyOwner {
-    //     usdcLinkPoolKey = key;
-    // }
-
-    /**
      * @notice Swaps USDC for LINK inside the already-unlocked PoolManager.
      * @dev Called from hook callbacks where the PoolManager lock is already held.
      *      Settles USDC from this contract's balance and takes LINK into this contract.
      * @param amount The exact amount of USDC to swap in.
+     * @return The remaining USDC balance after the swap.
      */
     function _swapUSDCToLink(uint256 amount) internal returns (uint256) {
         PoolKey memory key = PoolKey({
@@ -435,10 +396,13 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     }
 
     /**
-     * @notice Sends USDC to the destination chain via CCIP.
+     * @notice Sends USDC to the destination chain via CCIP and donates the protocol fee to the pool.
+     * @dev Calculates and deducts LINK and protocol fees, then sends the remaining USDC via CCIP.
+     * @param poolKey The pool key identifying the pool for protocol fee donation.
      * @param amount The amount of USDC to bridge.
-     * @param sender The address initiating the bridge (unused, reserved for future fee logic).
+     * @param sender The address initiating the bridge (included in encoded message data for destination execution).
      * @param messageData The message data containing the target address and calldata for the destination chain.
+     * @return protocolFee The protocol fee amount deducted and donated to the pool.
      */
     function _bridge(PoolKey memory poolKey, uint256 amount, address sender, MessageData memory messageData)
         internal
@@ -479,6 +443,14 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         return protocolFee;
     }
 
+    /**
+     * @notice Calculates the CCIP bridge fee required to send USDC to the destination chain.
+     * @dev Queries the CCIP router for the fee based on the message parameters and destination chain.
+     * @param amount The amount of USDC to bridge.
+     * @param msgSender The address initiating the bridge transaction (included in encoded message data).
+     * @param messageData The message data containing the target address and calldata for the destination chain.
+     * @return fees The calculated fee in LINK tokens required for this bridge transaction.
+     */
     function _calculateBridgeFee(uint256 amount, address msgSender, MessageData memory messageData)
         internal
         view
@@ -499,7 +471,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver of destination receiver contract
-            data: abi.encode(messageData.target, msgSender, messageData.callData), // Encode the function selector and
+            data: abi.encode(messageData.target, msgSender, messageData.callData), // Encoded message data for destination execution
             tokenAmounts: tokenAmounts, // The amount and type of token being transferred
             extraArgs: Client._argsToBytes(
                 Client.GenericExtraArgsV2({

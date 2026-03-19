@@ -79,6 +79,7 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
                 address(USDC),
                 address(config.linkTokens[0]),
                 address(config.ccipRouters[0]),
+                config.usdcLinkPoolHook,
                 config.destinationChainSelectors[0]
             ),
             address(flags)

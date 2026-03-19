@@ -21,10 +21,21 @@ contract DeployUnichainUSDCBridgeHook is Script {
         helpConfig = new HelperConfig();
         config = helpConfig.getConfig();
         // Hook contracts must have specific flags encoded in the address
-        uint160 flags = uint160(Hooks.AFTER_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+                | Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG
+        );
 
         // Mine a salt that will produce a hook address with the correct flags
-        bytes memory constructorArgs = abi.encode(config.poolManager);
+        bytes memory constructorArgs = abi.encode(
+            config.poolManager,
+            address(config.usdc),
+            address(config.linkTokens[0]),
+            address(config.ccipRouters[0]),
+            address(config.usdcLinkPoolHook),
+            config.destinationChainSelectors[0]
+        );
         (address hookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(UnichainUSDCBridgeHook).creationCode, constructorArgs);
 
@@ -36,6 +47,7 @@ contract DeployUnichainUSDCBridgeHook is Script {
             address(config.usdc),
             address(config.linkTokens[0]),
             address(config.ccipRouters[0]),
+            address(config.usdcLinkPoolHook),
             config.destinationChainSelectors[0]
         );
         require(address(unichainUSDCBridgeHook) == hookAddress, "PointsHookScript: hook address mismatch");

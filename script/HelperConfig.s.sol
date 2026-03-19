@@ -17,7 +17,7 @@ contract HelperConfig is Script {
         address usdc;
         address usdt;
         address poolManager;
-        address usdcLinkPoolHool;
+        address usdcLinkPoolHook;
         address liquidityRouter;
     }
 
@@ -60,8 +60,8 @@ contract HelperConfig is Script {
             usdc: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC Token Sepolia
             usdt: 0x3428Fb59Fa75E14A1ba6d33161FA69545f8B54aF, // USDT Mock Sepolia
             poolManager: 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543, // PoolManager Sepolia
-            usdcLinkPoolHool: 0x6c5732BbBc18616d415a47C214D5ee3ed56A6000,
-            liquidityRouter: address(0)
+            usdcLinkPoolHook: 0x6c5732BbBc18616d415a47C214D5ee3ed56A6000,
+            liquidityRouter: 0x33C88D1d00369455392d1AC33D5145B77fEa811B
         });
     }
 
@@ -90,7 +90,7 @@ contract HelperConfig is Script {
             usdc: 0x31d0220469e10c4E71834a79b1f276d740d3768F, // USDC Token Unichain Sepolia
             usdt: 0xCa3012Aa4b82A70b47D1359d0C14ffc9255eEB72, // USDT Mock on Unichain Sepolia
             poolManager: 0x00B036B58a818B1BC34d502D3fE730Db729e62AC, // PoolManager Unichain Sepolia
-            usdcLinkPoolHool: address(0),
+            usdcLinkPoolHook: address(0),
             liquidityRouter: address(0)
         });
     }
@@ -130,7 +130,7 @@ contract HelperConfig is Script {
             usdc: address(mUSDC),
             usdt: address(mUSDT),
             poolManager: 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408,
-            usdcLinkPoolHool: address(0),
+            usdcLinkPoolHook: address(0),
             liquidityRouter: address(0)
         });
     }

@@ -23,7 +23,7 @@ contract USDCBridgeSender is Ownable2Step {
     error InvalidUsdcToken(); // Used when the usdc token address is 0
     error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees); // Used to make sure contract has enough
     // balance to cover the fees.
-    error NothingToWithdraw(); // Used when trying to withdraw Ether but there's nothing to withdraw.
+    //error NothingToWithdraw(); // Used when trying to withdraw Ether but there's nothing to withdraw.
     error InvalidDestinationChain(); // Used when the destination chain selector is 0.
     error InvalidReceiverAddress(); // Used when the receiver address is 0.
     error NoReceiverOnDestinationChain(uint64 destinationChainSelector); // Used when the receiver address is 0 for a
@@ -200,27 +200,27 @@ contract USDCBridgeSender is Ownable2Step {
      * @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
      * @param _beneficiary The address to which the tokens will be sent.
      */
-    function withdrawLinkToken(address _beneficiary) public onlyOwner {
-        // Retrieve the balance of this contract
-        uint256 amount = i_linkToken.balanceOf(address(this));
+    // function withdrawLinkToken(address _beneficiary) public onlyOwner {
+    //     // Retrieve the balance of this contract
+    //     uint256 amount = i_linkToken.balanceOf(address(this));
 
-        // Revert if there is nothing to withdraw
-        if (amount == 0) revert NothingToWithdraw();
+    //     // Revert if there is nothing to withdraw
+    //     if (amount == 0) revert NothingToWithdraw();
 
-        i_linkToken.safeTransfer(_beneficiary, amount);
-    }
+    //     i_linkToken.safeTransfer(_beneficiary, amount);
+    // }
 
     /// @notice Allows the owner of the contract to withdraw all usdc tokens in the contract and transfer them to a
     /// beneficiary.
     /// @dev This function reverts with a 'NothingToWithdraw' error if there are no tokens to withdraw.
     /// @param _beneficiary The address to which the tokens will be sent.
-    function withdrawUsdcToken(address _beneficiary) public onlyOwner {
-        // Retrieve the balance of this contract
-        uint256 amount = i_usdcToken.balanceOf(address(this));
+    // function withdrawUsdcToken(address _beneficiary) public onlyOwner {
+    //     // Retrieve the balance of this contract
+    //     uint256 amount = i_usdcToken.balanceOf(address(this));
 
-        // Revert if there is nothing to withdraw
-        if (amount == 0) revert NothingToWithdraw();
+    //     // Revert if there is nothing to withdraw
+    //     if (amount == 0) revert NothingToWithdraw();
 
-        i_usdcToken.safeTransfer(_beneficiary, amount);
-    }
+    //     i_usdcToken.safeTransfer(_beneficiary, amount);
+    // }
 }

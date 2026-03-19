@@ -34,7 +34,7 @@ contract AddLiqudityToUSDCLINKPool is Script {
             currency1: Currency.wrap(config.linkTokens[0]),
             fee: 300,
             tickSpacing: 60,
-            hooks: IHooks(config.usdcLinkPoolHool)
+            hooks: IHooks(config.usdcLinkPoolHook)
         });
 
         // Deploy router and add liquidity

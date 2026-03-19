@@ -19,6 +19,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {USDCBridgeSender} from "./USDCBridgeSender.sol";
 import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
 contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     using CurrencyLibrary for Currency;
@@ -35,21 +36,16 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     }
 
     uint64 public immutable destinationChainSelector; // Unichain destination selector
-    PoolKey public usdcLinkPoolKey; // Pool key for the USDC/LINK pool used to buy LINK for fees
+    address public immutable usdcLinkPoolHook; // Pool key for the USDC/LINK pool used to buy LINK for fees
 
     uint24 public constant BASE_FEE = 1000; // 10%
-    uint24 public constant BRIDGE_FEE = 10; // 0.1%
+    uint24 public constant PROTOCOL_FEE = 10; // 0.1%
+    uint24 public constant DENOMINATOR = 10_000;
 
     error UnichainUSDCBridgeHook_NotUSDCOutput();
     error UnichainUSDCBridgeHook_SlippageExceeded(uint256 actual, uint256 minimum);
     error UnichainUSDCBridgeHook_MustUseDynamicFee();
     error UnichainUSDCBridgeHook_InefficientUSDCBalance();
-
-    event Debug(int256);
-    event SkipBridgeConditionsZeroHookData();
-    event SkipBridgeConditionsNotMet();
-    event BridgeSimulation();
-    event SwapUSDCToLink();
 
     /**
      * @notice Constructor initializes the hook with the pool manager, USDC token, LINK token, CCIP router, and destination chain.
@@ -59,11 +55,16 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
      * @param _router The address of the CCIP router contract.
      * @param _destinationChainSelector The CCIP chain selector for the destination chain.
      */
-    constructor(IPoolManager _manager, address _usdc, address _link, address _router, uint64 _destinationChainSelector)
-        BaseHook(_manager)
-        USDCBridgeSender(_router, _link, _usdc)
-    {
+    constructor(
+        IPoolManager _manager,
+        address _usdc,
+        address _link,
+        address _router,
+        address _usdcLinkPoolHook,
+        uint64 _destinationChainSelector
+    ) BaseHook(_manager) USDCBridgeSender(_router, _link, _usdc) {
         destinationChainSelector = _destinationChainSelector;
+        usdcLinkPoolHook = _usdcLinkPoolHook;
     }
 
     /**
@@ -121,10 +122,11 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
     {
+        PoolKey memory poolKey = key;
         // Validate USDC is among the currencies, otherwise ignore and continue as normal swap
         if (
-            Currency.unwrap(key.currency0) != address(i_usdcToken)
-                && Currency.unwrap(key.currency1) != address(i_usdcToken)
+            Currency.unwrap(poolKey.currency0) != address(i_usdcToken)
+                && Currency.unwrap(poolKey.currency1) != address(i_usdcToken)
         ) {
             return (
                 this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG
@@ -145,8 +147,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         // Validate zeroForOne is correct for USDC position, otherwise ignore and continue as normal swap
         if (params.zeroForOne) {
             // Validates that currency0 is usdc, otherwise apply swap fee and skip the logic
-            if (Currency.unwrap(key.currency0) != address(i_usdcToken)) {
-                emit SkipBridgeConditionsNotMet();
+            if (Currency.unwrap(poolKey.currency0) != address(i_usdcToken) || params.amountSpecified > 0) {
                 return (
                     this.beforeSwap.selector,
                     BeforeSwapDeltaLibrary.ZERO_DELTA,
@@ -155,8 +156,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             }
         } else {
             // Validates that currency1 is usdc, otherwise apply swap fee and skip the logic
-            if (Currency.unwrap(key.currency1) != address(i_usdcToken) || params.amountSpecified > 0) {
-                emit SkipBridgeConditionsNotMet();
+            if (Currency.unwrap(poolKey.currency1) != address(i_usdcToken) || params.amountSpecified > 0) {
                 return (
                     this.beforeSwap.selector,
                     BeforeSwapDeltaLibrary.ZERO_DELTA,
@@ -170,7 +170,6 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         // Verify hookData is not empty, otherwise ignore and continue as normal swap and apply swap fee
         if (hookData.length == 0) {
-            emit SkipBridgeConditionsZeroHookData();
             return
                 (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG);
         }
@@ -180,22 +179,22 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         BeforeSwapDelta beforeSwapDelta;
         uint256 amountIn;
-        uint256 amountOut;
-        PoolKey memory poolKey = key;
+        //uint256 amountOut;
 
         if (params.amountSpecified < 0) {
             beforeSwapDelta = toBeforeSwapDelta({
                 deltaSpecified: -int128(int256(params.amountSpecified)),
                 deltaUnspecified: 0 // tokens to return
             });
-        } else {
-            (amountIn, amountOut) = _calculateUnspecified(key, params);
-            beforeSwapDelta = toBeforeSwapDelta({
-                deltaSpecified: -int128(int256(params.amountSpecified)),
-                deltaUnspecified: -int128(int256(amountIn)) // tokens to return
-            });
         }
-        // return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG);
+        // } else {
+        //     (amountIn, amountOut) = _calculateUnspecified(poolKey, params);
+        //     beforeSwapDelta = toBeforeSwapDelta({
+        //         deltaSpecified: -int128(int256(params.amountSpecified)),
+        //         deltaUnspecified: -int128(int256(amountIn)) // tokens to return
+        //     });
+        // }
+        // // return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG);
 
         // // decode hookData
         (address msgSender, MessageData memory messageData, bool simulation) =
@@ -226,13 +225,10 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         // main bridge logic
         if (!simulation) {
-            _bridge(amount, msgSender, messageData);
-        } else {
-            emit BridgeSimulation();
+            _bridge(poolKey, amount, msgSender, messageData);
         }
 
         // no swap fee on this one, only bridge fee
-        // TODO: aplay fee only for swappers that are not LP
         return (this.beforeSwap.selector, beforeSwapDelta, 0);
     }
 
@@ -262,29 +258,27 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         Currency outputCurrency;
         int128 usdcAmount;
+        PoolKey memory poolKey = key;
         if (params.zeroForOne) {
             if (
-                delta.amount1() <= 0 || Currency.unwrap(key.currency1) != address(i_usdcToken)
+                delta.amount1() <= 0 || Currency.unwrap(poolKey.currency1) != address(i_usdcToken)
                     || params.amountSpecified > 0
             ) {
-                emit SkipBridgeConditionsNotMet();
                 return (this.afterSwap.selector, 0); // skip bridge logic perform regular swap
             }
-            outputCurrency = key.currency1;
+            outputCurrency = poolKey.currency1;
             usdcAmount = delta.amount1();
         } else {
             if (
-                delta.amount0() <= 0 || Currency.unwrap(key.currency0) != address(i_usdcToken)
+                delta.amount0() <= 0 || Currency.unwrap(poolKey.currency0) != address(i_usdcToken)
                     || params.amountSpecified > 0
             ) {
-                emit SkipBridgeConditionsNotMet();
                 return (this.afterSwap.selector, 0); // skip bridge logic perform regular swap
             }
-            outputCurrency = key.currency0;
+            outputCurrency = poolKey.currency0;
             usdcAmount = delta.amount0();
         }
         if (hookData.length == 0) {
-            emit SkipBridgeConditionsZeroHookData();
             return (this.afterSwap.selector, 0); // skip bridge logic perform regular swap
         }
         uint256 amount = uint256(int256(usdcAmount));
@@ -294,9 +288,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             abi.decode(hookData, (address, MessageData, bool));
 
         if (!simulation) {
-            _bridge(amount, msgSender, messageData);
-        } else {
-            emit BridgeSimulation();
+            _bridge(poolKey, amount, msgSender, messageData);
         }
 
         return (this.afterSwap.selector, usdcAmount);
@@ -305,25 +297,23 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     /**
      * @notice Hook called after liquidity is added. Takes the USDC portion of the added liquidity and bridges it.
      * @dev Only triggers when USDC is one of the pool currencies and hookData is non-empty.
-     * @param sender The address that added liquidity.
      * @param key The pool key identifying the pool.
-     * @param params The liquidity modification parameters.
      * @param delta The balance delta from the liquidity addition.
-     * @param feesAccrued Fees accrued during the liquidity operation.
      * @param hookData ABI-encoded (address msgSender, MessageData messageData, bool simulation).
      * @return The function selector and the hook's BalanceDelta adjustment.
      */
     function _afterAddLiquidity(
-        address sender,
+        address,
         PoolKey calldata key,
-        ModifyLiquidityParams calldata params,
+        ModifyLiquidityParams calldata,
         BalanceDelta delta,
-        BalanceDelta feesAccrued,
+        BalanceDelta,
         bytes calldata hookData
     ) internal override returns (bytes4, BalanceDelta) {
+        PoolKey memory poolKey = key;
         if (
-            Currency.unwrap(key.currency0) != address(i_usdcToken)
-                && Currency.unwrap(key.currency1) != address(i_usdcToken)
+            Currency.unwrap(poolKey.currency0) != address(i_usdcToken)
+                && Currency.unwrap(poolKey.currency1) != address(i_usdcToken)
         ) {
             return (this.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
         }
@@ -333,13 +323,13 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
 
         BalanceDelta returnBalanceDelta;
         uint256 amount;
-        if (Currency.unwrap(key.currency0) == address(i_usdcToken)) {
+        if (Currency.unwrap(poolKey.currency0) == address(i_usdcToken)) {
             amount = uint256(-int256(delta.amount0()));
-            key.currency0.take(poolManager, address(this), amount, false); // hook delta = -reserve
+            poolKey.currency0.take(poolManager, address(this), amount, false); // hook delta = -reserve
             returnBalanceDelta = toBalanceDelta(int128(int256(amount)), 0); // hookDelta = +reserve → hook net = 0, caller pays extra
         } else {
             amount = uint256(-int256(delta.amount0()));
-            key.currency1.take(poolManager, address(this), amount, false); // hook delta = -reserve
+            poolKey.currency1.take(poolManager, address(this), amount, false); // hook delta = -reserve
             returnBalanceDelta = toBalanceDelta(0, int128(int256(amount)));
         }
 
@@ -347,9 +337,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             abi.decode(hookData, (address, MessageData, bool));
 
         if (!simulation) {
-            _bridge(amount, msgSender, messageData);
-        } else {
-            emit BridgeSimulation();
+            _bridge(poolKey, amount, msgSender, messageData);
         }
 
         return (this.afterAddLiquidity.selector, returnBalanceDelta);
@@ -366,46 +354,46 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
      * @return amountIn The required input amount.
      * @return amountOut The expected output amount.
      */
-    function _calculateUnspecified(PoolKey calldata key, SwapParams calldata params)
-        internal
-        view
-        returns (uint256 amountIn, uint256 amountOut)
-    {
-        PoolId poolId = key.toId();
+    // function _calculateUnspecified(PoolKey memory key, SwapParams calldata params)
+    //     internal
+    //     view
+    //     returns (uint256 amountIn, uint256 amountOut)
+    // {
+    //     PoolId poolId = key.toId();
 
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        int256 amountSpecified = params.amountSpecified;
+    //     (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+    //     int256 amountSpecified = params.amountSpecified;
 
-        (, amountIn, amountOut,) = SwapMath.computeSwapStep({
-            sqrtPriceCurrentX96: sqrtPriceX96,
-            sqrtPriceTargetX96: params.sqrtPriceLimitX96,
-            liquidity: poolManager.getLiquidity(poolId),
-            amountRemaining: amountSpecified < 0
-                ? int256(-amountSpecified)  // exact-in: positive remaining
-                : int256(amountSpecified), // exact-out: positive remaining
-            feePips: 0
-        });
+    //     (, amountIn, amountOut,) = SwapMath.computeSwapStep({
+    //         sqrtPriceCurrentX96: sqrtPriceX96,
+    //         sqrtPriceTargetX96: params.sqrtPriceLimitX96,
+    //         liquidity: poolManager.getLiquidity(poolId),
+    //         amountRemaining: amountSpecified < 0
+    //             ? int256(-amountSpecified)  // exact-in: positive remaining
+    //             : int256(amountSpecified), // exact-out: positive remaining
+    //         feePips: 0
+    //     });
 
-        return (amountIn, amountOut);
-    }
+    //     return (amountIn, amountOut);
+    // }
 
-    /**
-     * @notice Returns the base swap fee applied to non-bridge swaps.
-     * @return The fee in pips (BASE_FEE).
-     */
-    function getFee() internal pure returns (uint24) {
-        // In a real implementation, you would likely want to calculate the fee based on various factors
-        // such as current market conditions, the size of the swap, etc. For simplicity, we are using a fixed fee here.
-        return BASE_FEE;
-    }
+    // /**
+    //  * @notice Returns the base swap fee applied to non-bridge swaps.
+    //  * @return The fee in pips (BASE_FEE).
+    //  */
+    // function getFee() internal pure returns (uint24) {
+    //     // In a real implementation, you would likely want to calculate the fee based on various factors
+    //     // such as current market conditions, the size of the swap, etc. For simplicity, we are using a fixed fee here.
+    //     return BASE_FEE;
+    // }
 
-    /**
-     * @notice Sets the PoolKey for the USDC/LINK pool used to buy LINK to pay CCIP fees.
-     * @param key The pool key of the USDC/LINK pool.
-     */
-    function setUsdcLinkPoolKey(PoolKey calldata key) external onlyOwner {
-        usdcLinkPoolKey = key;
-    }
+    // /**
+    //  * @notice Sets the PoolKey for the USDC/LINK pool used to buy LINK to pay CCIP fees.
+    //  * @param key The pool key of the USDC/LINK pool.
+    //  */
+    // function setUsdcLinkPoolKey(PoolKey calldata key) external onlyOwner {
+    //     usdcLinkPoolKey = key;
+    // }
 
     /**
      * @notice Swaps USDC for LINK inside the already-unlocked PoolManager.
@@ -414,7 +402,13 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
      * @param amount The exact amount of USDC to swap in.
      */
     function _swapUSDCToLink(uint256 amount) internal returns (uint256) {
-        PoolKey memory key = usdcLinkPoolKey;
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(i_usdcToken)),
+            currency1: Currency.wrap(address(i_linkToken)),
+            fee: 300,
+            tickSpacing: 60,
+            hooks: IHooks(usdcLinkPoolHook)
+        });
 
         // Determine swap direction: currency0 < currency1 by address (Uniswap ordering)
         bool zeroForOne = address(i_usdcToken) < address(i_linkToken);
@@ -424,8 +418,6 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             amountSpecified: -int256(amount), // exact input
             sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
-
-        emit SwapUSDCToLink();
 
         BalanceDelta delta = poolManager.swap(key, swapParams, "");
 
@@ -448,12 +440,15 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
      * @param sender The address initiating the bridge (unused, reserved for future fee logic).
      * @param messageData The message data containing the target address and calldata for the destination chain.
      */
-    function _bridge(uint256 amount, address sender, MessageData memory messageData) internal {
-        uint256 linkFee = calculateBridgeFee(amount, sender, messageData);
+    function _bridge(PoolKey memory poolKey, uint256 amount, address sender, MessageData memory messageData)
+        internal
+        returns (uint256 protocolFee)
+    {
+        uint256 linkFee = _calculateBridgeFee(amount, sender, messageData);
 
         uint256 usdcFee = _swapUSDCToLink(linkFee);
 
-        uint256 protocolFee = amount * 10 / 10000; // 0.01 %
+        protocolFee = amount * PROTOCOL_FEE / DENOMINATOR; // 0.01 %
 
         uint256 totalFee = usdcFee + protocolFee;
 
@@ -467,17 +462,25 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
             revert UnichainUSDCBridgeHook_SlippageExceeded(finalAmount, messageData.minAmountOut);
         }
 
+        if (Currency.unwrap(poolKey.currency0) == address(i_usdcToken)) {
+            poolManager.donate(poolKey, protocolFee, 0, "");
+        } else {
+            poolManager.donate(poolKey, 0, protocolFee, "");
+        }
+
         sendMessagePayLINK({
             _destinationChainSelector: destinationChainSelector, // uint64
             _target: messageData.target,
             _msgSender: sender,
-            _amount: amount, // uint256
+            _amount: finalAmount, // uint256
             _data: messageData.callData //bytes memory
         });
+
+        return protocolFee;
     }
 
-    function calculateBridgeFee(uint256 amount, address msgSender, MessageData memory messageData)
-        public
+    function _calculateBridgeFee(uint256 amount, address msgSender, MessageData memory messageData)
+        internal
         view
         returns (uint256 fees)
     {

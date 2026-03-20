@@ -131,8 +131,8 @@ contract UnichainUSDCBridgeHookTest is Test, Deployers {
         // Set user address in hook data
         bytes memory hookData = abi.encode(
             address(this),
-            UnichainUSDCBridgeHook.MessageData({beneficiary: address(0), strategy: 0, minAmountOut: 0, data: ""}),
-            true
+            UnichainUSDCBridgeHook.MessageData({beneficiary: msg.sender, strategy: 1, minAmountOut: 0, data: ""}),
+            false
         );
         //int128 swapAmount = exactInput ? -int128(1e6) : int128(1e6);
         int128 swapAmount = -int128(1e6);

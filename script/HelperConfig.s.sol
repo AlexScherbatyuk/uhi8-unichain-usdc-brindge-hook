@@ -15,6 +15,7 @@ contract HelperConfig is Script {
         address poolManager;
         address usdcLinkPoolHook;
         address liquidityRouter;
+        address swapRouter;
         address staker;
         address dstChainReceiver;
         address srcChainSender;
@@ -70,10 +71,11 @@ contract HelperConfig is Script {
             usdt: 0x3428Fb59Fa75E14A1ba6d33161FA69545f8B54aF, // USDT Mock Sepolia
             poolManager: 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543, // PoolManager Sepolia
             usdcLinkPoolHook: 0x6c5732BbBc18616d415a47C214D5ee3ed56A6000,
-            liquidityRouter: 0x33C88D1d00369455392d1AC33D5145B77fEa811B,
-            staker: address(0),
-            dstChainReceiver: 0x607717140Bc2Ef8d28dEAa35Ab412Db151719E89, // unichain-sepolia receiver address
-            srcChainSender: 0x7bDc5E441da38E15D7C0911acF96A04FB67624Ce // sepolia sender address
+            liquidityRouter: 0x2528d4304c99eb62820348Cbfd50DE3C135cDF7F,
+            swapRouter: 0x15Cd3D34dF632EE9934590f18180249DF9d1255B,
+            staker: 0x9CBE0C41b05b57c7ef203a6e3Ff0831a8F289B0f,
+            dstChainReceiver: 0x75ef33A278b30529e083aF180eDFe17f5B34f49D, // unichain-sepolia receiver address
+            srcChainSender: 0x855b0881580CAEeD3711CfB6f2F1704F8B6124Ce // sepolia sender address
         });
     }
 
@@ -108,9 +110,10 @@ contract HelperConfig is Script {
             poolManager: 0x00B036B58a818B1BC34d502D3fE730Db729e62AC, // PoolManager Unichain Sepolia
             usdcLinkPoolHook: address(0),
             liquidityRouter: address(0),
+            swapRouter: address(0),
             staker: 0x4ED9f16e42246d3d8CE88fe7B34DD7Deb74B4D05,
-            dstChainReceiver: 0x607717140Bc2Ef8d28dEAa35Ab412Db151719E89, // unichain-sepolia receiver address
-            srcChainSender: 0x7bDc5E441da38E15D7C0911acF96A04FB67624Ce // sepolia sender address
+            dstChainReceiver: 0x75ef33A278b30529e083aF180eDFe17f5B34f49D, // unichain-sepolia receiver address
+            srcChainSender: 0x855b0881580CAEeD3711CfB6f2F1704F8B6124Ce // sepolia sender address
         });
     }
 
@@ -145,9 +148,10 @@ contract HelperConfig is Script {
             poolManager: 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543, // PoolManager Avilanch Fuji
             usdcLinkPoolHook: address(0),
             liquidityRouter: address(0),
-            staker: 0x72F322567Ed1cFeA00A98630252AF0011D7F240c,
-            dstChainReceiver: 0x607717140Bc2Ef8d28dEAa35Ab412Db151719E89, // Sepolia receiver address
-            srcChainSender: 0x7bDc5E441da38E15D7C0911acF96A04FB67624Ce // Avilanch Fuji sender address
+            swapRouter: address(0),
+            staker: 0x9CBE0C41b05b57c7ef203a6e3Ff0831a8F289B0f,
+            dstChainReceiver: 0x75ef33A278b30529e083aF180eDFe17f5B34f49D, // Sepolia receiver address
+            srcChainSender: 0x855b0881580CAEeD3711CfB6f2F1704F8B6124Ce // Avilanch Fuji sender address
         });
     }
 
@@ -188,6 +192,7 @@ contract HelperConfig is Script {
             poolManager: 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408,
             usdcLinkPoolHook: address(0),
             liquidityRouter: address(0),
+            swapRouter: address(0),
             staker: address(0),
             dstChainReceiver: address(0),
             srcChainSender: address(0)

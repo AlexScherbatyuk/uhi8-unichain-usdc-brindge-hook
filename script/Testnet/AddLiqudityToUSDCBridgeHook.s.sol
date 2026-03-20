@@ -16,6 +16,7 @@ import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/types/BalanceDelta.sol"
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
 import {LiquidityRouter} from "src/periphery/LiquidityRouter.sol";
+import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 
 contract AddLiqudityToUSDCLINKPool is Script {
     using StateLibrary for IPoolManager;
@@ -31,10 +32,10 @@ contract AddLiqudityToUSDCLINKPool is Script {
         // Initialize pool if needed
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(config.usdc),
-            currency1: Currency.wrap(config.linkTokens[0]),
-            fee: 300,
+            currency1: Currency.wrap(config.usdt),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
-            hooks: IHooks(config.usdcLinkPoolHook)
+            hooks: IHooks(config.srcChainSender) // Main Hook / Sender
         });
 
         // Deploy router and add liquidity
@@ -47,7 +48,13 @@ contract AddLiqudityToUSDCLINKPool is Script {
         // LiquidityRouter router =
         //     new LiquidityRouter(address(poolManager), config.usdc, config.linkTokens[0], config.usdt);
 
-        router.addLiquidity(key, 1e6, 1e18);
+        (bool success,) = address(config.usdt).call(abi.encodeWithSignature("mint(address,uint256)", msg.sender, 10e6));
+
+        // Approve router to spend tokens
+        IERC20(config.usdc).approve(address(router), type(uint256).max);
+        IERC20(config.usdt).approve(address(router), type(uint256).max);
+
+        router.addLiquidity(key, 2e6, 2e6);
         vm.stopBroadcast();
 
         console.log("Liquidity added successfully!");

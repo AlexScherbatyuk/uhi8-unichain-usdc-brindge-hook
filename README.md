@@ -1,74 +1,309 @@
-### Sender Sepoli 0xe9fEcbEC0F1B7C820A33354fC564F7A3753c032d
+# Unichain USDC Bridge Hook
 
-### Staker Unichain Sepolia 0x4ED9f16e42246d3d8CE88fe7B34DD7Deb74B4D05
+A Uniswap v4 hook that bridges USDC across chains via Chainlink CCIP, enabling cross-chain swaps and liquidity operations on the Unichain network.
 
-## Receiver Unichain Sepolia 0x045e5621C5C0ed32958799aDaceB522ffCd72F0d
+## Project Overview
 
-####
+This project implements a cross-chain USDC bridge system using Uniswap v4 hooks and Chainlink CCIP. The hook intercepts USDC swaps and liquidity operations on Sepolia, automatically bridging tokens to Unichain and Avalanche with support for arbitrary smart contract execution on destination chains.
 
-## Sender 0xE5bBCcDd68f0a0cDC3Ac08d4D19a1B7E30306042 Avilanche Fuji
+**Key Features:**
+- Intercepts USDC swaps via Uniswap v4 hooks
+- Bridges USDC via Chainlink CCIP to multiple destination chains
+- Calculates and deducts CCIP bridge fees (LINK) dynamically
+- Collects protocol fees (0.1%) from bridged amounts
+- Enforces slippage protection on destination chain
+- Supports arbitrary calldata execution on destination contracts
+- Works with dynamic fee mode pools
 
-### Staker Unichain Sepolia 0x4ED9f16e42246d3d8CE88fe7B34DD7Deb74B4D05
+## Project Structure
 
-## Receiver Unichain Sepolia 0x045e5621C5C0ed32958799aDaceB522ffCd72F0d
+```
+.
+├── src/
+│   ├── UnichainUSDCBridgeHook.sol      # Main hook contract (Sepolia) - intercepts swaps & bridges USDC
+│   ├── USDCBridgeSender.sol             # Chainlink CCIP message sender logic
+│   ├── USDCBridgeReceiver.sol           # CCIP receiver on destination chains (Unichain/Avalanche)
+│   ├── interfaces/
+│   │   └── IStaker.sol                  # Interface for staking contracts on destination
+│   └── periphery/
+│       ├── LiquidityRouter.sol          # Add/remove liquidity helper
+│       ├── SwapRouter.sol               # Swap execution helper
+│       ├── Staker.sol                   # Example staking contract for destination chain
+│       └── USDCLINKPoolHook.sol         # Helper pool for USDC/LINK swaps (pay bridge fees)
+│
+├── test/
+│   ├── UnichainUSDCBridgeHookTest.t.sol # Main hook tests
+│   ├── LiquidityRouterTest.t.sol         # Liquidity router tests
+│   ├── SwapRouterTest.t.sol              # Swap router tests
+│   ├── DeployUSDCLINKPoolTest.t.sol      # USDC/LINK pool tests
+│   └── Mock/
+│       ├── USDCMock.sol                  # Mock USDC token for testing
+│       ├── USDTMock.sol                  # Mock USDT token for testing
+│       └── LINKMock.sol                  # Mock LINK token for testing
+│
+├── script/
+│   ├── HelperConfig.s.sol                # Network configuration
+│   ├── Deploy/
+│   │   ├── DeployUSDTMock.s.sol           # Deploy mock tokens
+│   │   ├── DeployUSDCLINKPool.s.sol       # Deploy USDC/LINK pool for fee swaps
+│   │   ├── DeployUSDCLINKPoolHook.s.sol   # Deploy USDC/LINK pool hook
+│   │   ├── DeployLiquidityRouter.s.sol    # Deploy liquidity router
+│   │   ├── DeploySwapRouter.s.sol         # Deploy swap router
+│   │   ├── DeployStaker.s.sol             # Deploy example staker contract
+│   │   ├── DeployUnichainUSDCBridgeHook.s.sol   # Deploy main hook (Sepolia)
+│   │   ├── DeployUnichainUSDCBridgeReceiver.s.sol # Deploy receiver
+│   │   └── DeployUnichainUSDCBridgePoolHook.s.sol # Deploy pool hook variant
+│   ├── Testnet/
+│   │   ├── AddLiqudityToUSDCLINKPool.s.sol      # Add liquidity to USDC/LINK pool
+│   │   ├── AddLiqudityToUSDCBridgeHook.s.sol    # Add liquidity to bridge hook pool
+│   │   ├── SwapExactInput.s.sol                 # Execute test swaps
+│   │   └── SepoliaUnichainSepoliaTest.s.sol     # Cross-chain test flow
+│   └── PostDeploy/
+│       ├── SenderPostDeploy.s.sol        # Post-deployment configuration for sender
+│       └── ReceiverPostDeploy.s.sol      # Post-deployment configuration for receiver
+│
+├── Makefile                              # Make commands for deployment and testing
+├── foundry.toml                         # Foundry configuration
+└── README.md
+```
 
+## Tests
 
-## Sepolia Staker 0xCF589cD768a02a1bdafE887578CC657952B9B933
-## Sepolia Receiver 0x94a47C11316f02DB4EB9098B82926dfd8408Ca9B
+Run tests locally with:
 
+```bash
+forge test
+```
 
-###
+### Test Coverage
 
-## Sepolia Sender 0x6d714CBc770f7B86bb102d07EC3E16DB68A467cf
-## Avalanche Staker 0x72F322567Ed1cFeA00A98630252AF0011D7F240c
-## Avalanche Receiver 0x71F22b9f94b70d922e6E26741d8D44B1Fde302Ae
+| Test File | Purpose |
+|-----------|---------|
+| **UnichainUSDCBridgeHookTest.t.sol** | Tests core hook functionality: swap interception, CCIP message construction, fee calculation, slippage protection |
+| **LiquidityRouterTest.t.sol** | Tests adding/removing liquidity to hook-enabled pools |
+| **SwapRouterTest.t.sol** | Tests swap execution through routers |
+| **DeployUSDCLINKPoolTest.t.sol** | Tests USDC/LINK pool creation and operations |
 
+## Makefile Commands
 
-## last chance
-### Staker Unichain Sepolia 0x113f97dB1Fa636667700747B8Cf07454bEdB0Fb0
-### Receiver Unichain Sepolia 0xc95e1983102317eB7c7156FfEa82ADd322760DB7
-##TODO LIST
+### Mock Token Deployment
 
+Deploy mock ERC20 tokens for testing:
 
-### Hook
-1. Implement basice hook setup with after swap hook and test swap. ✅
-   
-### Sender
-1. Implemt cross-chain messeggae + USDC sender and test on testnet. ✅
+```bash
+# Sepolia
+make deployUSDTMock-sepolia
 
-### Receiver
-1. Implement cross-chain receiver + stake (simple for tests) contract to receive USDC and stake it as payload instracted. ✅
+# Unichain Sepolia
+make deployUSDTMock-unichain-sepolia
 
+# Avalanche Fuji
+make deployUSDTMock-avalanche-fuji
+```
 
+### Pool & Router Deployment (Sepolia)
 
-## Local tests
-## Fork tests for cros-chain Sepolia/Unichain
-### Predeploid Sepolia and Unichain contracts: Sepolia (Pool, Hook), Unichain (Receiver) 
+Deploy Uniswap pools and routers:
 
+```bash
+# Deploy USDC/LINK pool (used for paying bridge fees)
+make deployUSDCLINKPool-sepolia
 
-## Deployed Contracts
+# Deploy liquidity router
+make deployLiqudityRoute-sepolia
 
-### Sepolia
+# Deploy swap router
+make DeploySwapRouter-sepolia
+```
 
-| Contract Name | Address | Description |
-|---|---|---|
-| Mock USDT | 0x3428Fb59Fa75E14A1ba6d33161FA69545f8B54aF | Mock USDT token, examplary token1 for main hook's pool |
-| USDC/LINK Pool Hook | 0x6c5732BbBc18616d415a47C214D5ee3ed56A6000 | USDC/LINK Pool Hook is used to swap usdc to link, to pay Chainlink fee |
-| LiquidityRouter | 0x33c88d1d00369455392d1ac33d5145b77fea811b | Is used do add liqudity to project pools |
-| Hook / Sender | 0x7bdc5e441da38e15d7c0911acf96a04fb67624ce | The main project bridge hook |
+### Bridge Hook Deployment (Sepolia)
 
-### Unichain Sepolia
+Deploy the main USDC bridge hook:
 
-| Contract Name | Address | Description |
-|---|---|---|
-| Mock USDT | 0xCa3012Aa4b82A70b47D1359d0C14ffc9255eEB72 | Mock USDT token for testing |
-| Receiver | 0x0266a43006e3b8ef324e79228de2a48b3a8b631c | Cross-chain receiver |
-| Staker   | 0x4ED9f16e42246d3d8CE88fe7B34DD7Deb74B4D05 | Staking contract example for arbitary call on unichain |
+```bash
+# Deploy the hook
+make deployUnichainUSDCBridgeHook-sepolia
 
+# Deploy pool-integrated variant
+make DeployUnichainUSDCBridgePoolHook
+```
 
-### Avalanche
-| Contract Name | Address | Description |
-|---|---|---|
-| Mock USDT | 0xf4365ea16cf834c069fdeafee141303b5ad4a267 | Mock USDT token for testing |
-| Receiver | 0x607717140bc2ef8d28deaa35ab412db151719e89 | Cross-chain receiver |
-| Staker   | 0x72F322567Ed1cFeA00A98630252AF0011D7F240c | Staking contract example for arbitary call on unichain |
+### Receiver Deployment
+
+Deploy receiver contracts on destination chains:
+
+```bash
+# Unichain Sepolia
+make deployUSDCBridgeReceiver-unichain-sepolia
+make deployStaker-unichain-sepolia
+
+# Avalanche Fuji
+make deployUSDCBridgeReceiver-avalanche-fuji
+make deployStaker-avalanche-fuji
+```
+
+### Post-Deployment Configuration
+
+Configure cross-chain connections after deployment:
+
+```bash
+# Configure sender on Sepolia
+make SenderPostDeploy
+
+# Configure receiver on Unichain Sepolia
+make ReceiverPostDeplo-unichain
+
+# Configure receiver on Avalanche Fuji
+make ReceiverPostDeploy-avalanche
+```
+
+### Liquidity & Testing
+
+Add liquidity and run test transactions:
+
+```bash
+# Add liquidity to USDC/LINK pool
+make AddLiqudityToUSDCLINKPool
+
+# Add liquidity to bridge hook pool
+make AddLiqudityToUSDCBridgeHook
+
+# Execute test swap
+make SwapExactInput
+
+# Cross-chain bridge test (Sepolia → Unichain)
+make SepoliaUnichainSepoliaTest
+```
+
+## Deployed Contract Addresses
+
+### Sepolia (Source Chain)
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| Mock USDT | `0x3428Fb59Fa75E14A1ba6d33161FA69545f8B54aF` | Mock USDT token for testing |
+| USDC/LINK Pool Hook | `0x6c5732BbBc18616d415a47C214D5ee3ed56A6000` | Pool for USDC/LINK swaps to pay fees |
+| Liquidity Router | `0x2528d4304c99eb62820348cbfd50de3c135cdf7f` | Helper for adding/removing liquidity |
+| Swap Router | `0x15cd3d34df632ee9934590f18180249df9d1255b` | Helper for executing swaps |
+| **Hook / Sender** | **`0x855b0881580caeed3711cfb6f2f1704f8b6124ce`** | Main USDC bridge hook |
+
+### Unichain Sepolia (Destination Chain)
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| Mock USDT | `0xCa3012Aa4b82A70b47D1359d0C14ffc9255eEB72` | Mock USDT token for testing |
+| **Receiver** | **`0x0266a43006e3b8ef324e79228de2a48b3a8b631c`** | Receives bridged USDC via CCIP |
+| Staker | `0x4ED9f16e42246d3d8CE88fe7B34DD7Deb74B4D05` | Example staking contract |
+
+### Avalanche Fuji (Destination Chain)
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| Mock USDT | `0xf4365ea16cf834c069fdeafee141303b5ad4a267` | Mock USDT token for testing |
+| **Receiver** | **`0x75ef33a278b30529e083af180edfe17f5b34f49d`** | Receives bridged USDC via CCIP |
+| Staker | `0x9cbe0c41b05b57c7ef203a6e3ff0831a8f289b0f` | Example staking contract |
+
+## How It Works
+
+### 1. **Swap Flow**
+
+User initiates a swap involving USDC on Sepolia:
+
+```
+User → SwapRouter → UnichainUSDCBridgeHook (beforeSwap)
+  ↓
+Hook detects USDC output
+  ↓
+Calculates bridge fee (LINK needed for CCIP)
+  ↓
+Swaps USDC → LINK on USDC/LINK pool to cover fees
+  ↓
+Constructs CCIP message with destination chain selector
+  ↓
+Sends message to CCIP router
+  ↓
+Message routed to destination chain
+```
+
+### 2. **Destination Chain Execution**
+
+CCIP router delivers message to receiver on destination (Unichain/Avalanche):
+
+```
+CCIPRouter → USDCBridgeReceiver
+  ↓
+Validates sender & source chain
+  ↓
+Extracts USDC amount and arbitrary calldata
+  ↓
+Calls destination contract (e.g., Staker) with data
+  ↓
+Staker executes arbitrary logic (e.g., stake tokens)
+```
+
+### 3. **Fee Structure**
+
+- **Base Fee**: 10% of bridged amount (configurable)
+- **Protocol Fee**: 0.1% (collected for protocol)
+- **CCIP Fee**: Paid in LINK from swapping portion of USDC
+
+## Key Parameters
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `BASE_FEE` | 1000 (10%) | Bridge fee percentage |
+| `PROTOCOL_FEE` | 10 (0.1%) | Protocol fee percentage |
+| `DENOMINATOR` | 10,000 | Fee calculation divisor |
+
+## Environment Setup
+
+Create a `.env` file with:
+
+```bash
+SEPOLIA_RPC_URL=
+UNICHAIN_SEPOLIA_RPC_URL=
+AVALANCHE_FUJI_RPC_URL=
+ETHERSCAN_API_KEY=
+SENDER=<your-wallet-address>
+```
+
+## Development
+
+### Build
+```bash
+forge build
+```
+
+### Test
+```bash
+forge test
+```
+
+### Test with Gas Report
+```bash
+forge test --gas-report
+```
+
+### Format
+```bash
+forge fmt
+```
+
+## Architecture Decisions
+
+- **Uniswap v4 Hooks**: Used for transparent interception of swaps without protocol modification
+- **Chainlink CCIP**: Provides reliable cross-chain messaging with native token bridging
+- **Dynamic Fee Mode**: Allows hooks to adjust fees per transaction based on bridge costs
+- **Arbitrary Calldata**: Enables flexible destination chain logic (staking, swaps, etc.)
+
+## Security Considerations
+
+- Slippage protection enforced on destination chain with `minAmountOut`
+- Message validation against configured senders per chain
+- Failed message handling with callback mechanism
+- Protocol fees collected separately to prevent fund loss
+- LINK reserves managed for CCIP fee coverage
+
+## License
+
+MIT

@@ -49,6 +49,8 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
     using CurrencySettler for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
+    event Debug(uint256);
+
     struct MessageData {
         address beneficiary; // contract to call on Unichain (e.g. vault, router)
         uint8 strategy; // arbitrary calldata to forward (can be empty)
@@ -179,6 +181,7 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         } else {
             // Validates that currency1 is usdc, otherwise apply swap fee and skip the logic
             if (Currency.unwrap(poolKey.currency1) != address(i_usdcToken) || params.amountSpecified > 0) {
+                emit Debug(5);
                 return (
                     this.beforeSwap.selector,
                     BeforeSwapDeltaLibrary.ZERO_DELTA,
@@ -207,9 +210,15 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
                 deltaSpecified: -int128(int256(params.amountSpecified)),
                 deltaUnspecified: 0 // tokens to return
             });
+        } else {
+            return
+                (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, BASE_FEE | LPFeeLibrary.OVERRIDE_FEE_FLAG);
         }
+
         (address msgSender, MessageData memory messageData, bool simulation) =
             abi.decode(hookData, (address, MessageData, bool));
+
+        emit Debug(simulation ? 1 : 0);
 
         // convert int amount that can be positive or negative to uint, always positive
         uint256 amount = params.amountSpecified < 0 ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
@@ -218,24 +227,26 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         if (params.zeroForOne) {
             poolManager.take(poolKey.currency0, address(this), uint128(amountIn > 0 ? amountIn : amount));
             if (params.amountSpecified > 0) {
+                emit Debug(11);
                 poolKey.currency0
                     .settle(poolManager, address(msgSender), uint128(amountIn > 0 ? amountIn : amount), false);
             }
         } else {
             poolManager.take(poolKey.currency1, address(this), uint128(amount));
             if (params.amountSpecified > 0) {
+                emit Debug(13);
                 poolKey.currency1
                     .settle(poolManager, address(msgSender), uint128(amountIn > 0 ? amountIn : amount), false);
             }
         }
-
         // if above logic is correct this condition never evaluates to true, so this revert is never reached.
         if (i_usdcToken.balanceOf(address(this)) == 0) {
             revert UnichainUSDCBridgeHook_InefficientUSDCBalance();
         }
-
+        emit Debug(16);
         // main bridge logic
         if (!simulation) {
+            emit Debug(17);
             _bridge(poolKey, amount, msgSender, messageData);
         }
 
@@ -321,36 +332,43 @@ contract UnichainUSDCBridgeHook is BaseHook, USDCBridgeSender {
         BalanceDelta,
         bytes calldata hookData
     ) internal override returns (bytes4, BalanceDelta) {
+        emit Debug(1);
+
         PoolKey memory poolKey = key;
         if (
             Currency.unwrap(poolKey.currency0) != address(i_usdcToken)
                 && Currency.unwrap(poolKey.currency1) != address(i_usdcToken)
         ) {
+            emit Debug(2);
             return (this.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
         }
         if (hookData.length == 0) {
+            emit Debug(3);
             return (this.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
         }
-
+        emit Debug(4);
         BalanceDelta returnBalanceDelta;
         uint256 amount;
         if (Currency.unwrap(poolKey.currency0) == address(i_usdcToken)) {
+            emit Debug(5);
             amount = uint256(-int256(delta.amount0()));
             poolKey.currency0.take(poolManager, address(this), amount, false); // hook delta = -reserve
             returnBalanceDelta = toBalanceDelta(int128(int256(amount)), 0); // hookDelta = +reserve → hook net = 0, caller pays extra
         } else {
-            amount = uint256(-int256(delta.amount0()));
+            emit Debug(6);
+            amount = uint256(-int256(delta.amount1()));
             poolKey.currency1.take(poolManager, address(this), amount, false); // hook delta = -reserve
             returnBalanceDelta = toBalanceDelta(0, int128(int256(amount)));
         }
-
+        emit Debug(7);
         (address msgSender, MessageData memory messageData, bool simulation) =
             abi.decode(hookData, (address, MessageData, bool));
-
+        emit Debug(8);
         if (!simulation) {
+            emit Debug(9);
             _bridge(poolKey, amount, msgSender, messageData);
         }
-
+        emit Debug(10);
         return (this.afterAddLiquidity.selector, returnBalanceDelta);
     }
 

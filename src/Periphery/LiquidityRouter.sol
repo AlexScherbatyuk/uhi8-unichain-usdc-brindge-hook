@@ -25,12 +25,16 @@ contract LiquidityRouter is IUnlockCallback {
 
     IPoolManager public poolManager;
 
-    uint256 constant INITIAL_USDC = 5e6; // 1 USDC (6 decimals)
-    uint256 constant INITIAL_LINK = 5e18; // 1 LINK (18 decimals)
-
     IERC20 private usdc;
     IERC20 private usdt;
     IERC20 private link;
+
+    struct MessageData {
+        address beneficiary; // contract to call on Unichain (e.g. vault, router)
+        uint8 strategy; // arbitrary calldata to forward (can be empty)
+        uint256 minAmountOut; // slippage guard enforced on destination
+        bytes data;
+    }
 
     constructor(address _poolManager, address _usdc, address _link, address _usdt) {
         poolManager = IPoolManager(_poolManager);
@@ -45,13 +49,17 @@ contract LiquidityRouter is IUnlockCallback {
         IERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), amount0);
         IERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), amount1);
 
-        poolManager.unlock(abi.encode(key, msg.sender, 0, 0, ""));
+        MessageData memory messageData = MessageData({beneficiary: msg.sender, strategy: 1, minAmountOut: 0, data: ""});
+
+        bytes memory hookData = abi.encode(msg.sender, messageData, false);
+        poolManager.unlock(abi.encode(key, hookData, amount0, amount1));
     }
 
     /// @notice Uniswap V4 unlock callback - performs liquidity operations
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {
-        (PoolKey memory key, address beneficiary, uint256 strategy, uint256 minAmountOut, bytes memory _data) =
-            abi.decode(data, (PoolKey, address, uint256, uint256, bytes));
+        (PoolKey memory key, bytes memory _data, uint256 amount0, uint256 amount1) =
+            abi.decode(data, (PoolKey, bytes, uint256, uint256));
+
         PoolKey memory poolKey = key;
         // Get current pool state
         PoolId poolId = PoolIdLibrary.toId(poolKey);
@@ -69,9 +77,9 @@ contract LiquidityRouter is IUnlockCallback {
         IERC20(Currency.unwrap(poolKey.currency0)).approve(address(poolManager), type(uint256).max);
         IERC20(Currency.unwrap(poolKey.currency1)).approve(address(poolManager), type(uint256).max);
 
-        // Calculate required liquidity
+        // Calculate required liquidity using the actual amounts passed
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
-            sqrtPriceX96, sqrtPriceAtTickLower, sqrtPriceAtTickUpper, INITIAL_USDC, INITIAL_LINK
+            sqrtPriceX96, sqrtPriceAtTickLower, sqrtPriceAtTickUpper, amount0 * 5000 / 10000, amount1 * 5000 / 10000
         );
 
         // Add liquidity to pool
@@ -80,7 +88,7 @@ contract LiquidityRouter is IUnlockCallback {
             ModifyLiquidityParams({
                 tickLower: -600, tickUpper: 600, liquidityDelta: int256(uint256(liquidity)), salt: bytes32(0)
             }),
-            abi.encode(beneficiary, strategy, minAmountOut, _data)
+            _data
         );
 
         // Settle token deltas

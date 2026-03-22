@@ -19,7 +19,7 @@ contract SenderPostDeploy is Script {
         UnichainUSDCBridgeHook(config.srcChainSender)
             .setReceiverForDestinationChain(config.destinationChainSelectors[1], config.dstChainReceiver);
         UnichainUSDCBridgeHook(config.srcChainSender)
-            .setGasLimitForDestinationChain(config.destinationChainSelectors[1], 20000);
+            .setGasLimitForDestinationChain(config.destinationChainSelectors[1], 500000);
         vm.stopBroadcast();
     }
 }
